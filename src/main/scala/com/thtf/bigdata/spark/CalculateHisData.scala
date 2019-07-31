@@ -26,17 +26,14 @@ object CalculateHisData {
 
     // spark配置
     val master = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_MASTER)
-    val maxRatePerPart = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_MAXRATEPERPARTITION)
     // 其他配置
     val errorFromTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_FROMTIME)
     val errorEndTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_ENDTIME)
 
     var sparkConf = new SparkConf().setAppName(this.getClass.getSimpleName)
-    // 测试用master和拉取量
+    // 测试用master
     if (master != null && master != "") {
-      sparkConf = sparkConf
-        .setMaster(master)
-        .set("spark.streaming.kafka.maxRatePerPartition", maxRatePerPart)
+      sparkConf = sparkConf.setMaster(master)
     }
     val sc = new SparkContext(sparkConf)
 

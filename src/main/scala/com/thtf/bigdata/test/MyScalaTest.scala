@@ -1,6 +1,5 @@
 package com.thtf.bigdata.test
 
-import org.junit.Test
 import scala.collection.mutable.ArrayBuffer
 import com.alibaba.fastjson.JSONArray
 import java.util.regex.Pattern

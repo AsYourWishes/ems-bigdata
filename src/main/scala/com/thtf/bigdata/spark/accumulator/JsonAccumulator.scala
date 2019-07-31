@@ -14,7 +14,13 @@ class JsonAccumulator extends AccumulatorV2[JSONArray,ArrayBuffer[JSONArray]] {
   }
 
   def copy(): AccumulatorV2[JSONArray, ArrayBuffer[JSONArray]] = {
-    ???
+    val newAccu = new JsonAccumulator
+    jsonArray.synchronized{
+      for(json <- jsonArray){
+        newAccu.add(json)
+      }
+    }
+    newAccu
   }
 
   def isZero: Boolean = {

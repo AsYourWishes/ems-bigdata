@@ -386,9 +386,9 @@ object PhoenixFunctions {
     }
     var wheres: Array[String] = null
     if(endTime == null){
-    	wheres = Array(s"${column} = '${dateTime}'")
+    	wheres = Array(s"${column} = TO_TIMESTAMP('${dateTime}')")
     }else {
-  	  wheres = Array(s"${column} >= '${dateTime}'",s"${column} < '${endTime}'")
+  	  wheres = Array(s"${column} >= TO_TIMESTAMP('${dateTime}')",s"${column} < TO_TIMESTAMP('${endTime}')")
     }
   	SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, tablename, null, wheres))
   }
