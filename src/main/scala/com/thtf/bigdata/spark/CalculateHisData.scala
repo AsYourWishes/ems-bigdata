@@ -38,25 +38,26 @@ object CalculateHisData {
 
     // 如果配置的时间不正确，直接结束
     if (SparkFunctions.checkStringTime(errorFromTime, errorEndTime) == false) return
+    log.error("配置的时间不正确，请重新配置")
 
     /*
 		 * 创建广播变量
 		 */
     // (code,(basic_code,id))     (01-1,(A,11))
     val bcItemType = sc.broadcast(PhoenixFunctions.getItemTypeTable())
-    println(bcItemType.value.size)
     // 表的最大值
     val bcMaxValue = sc.broadcast(PhoenixFunctions.getItemMaxValue())
-    println(bcMaxValue.value.size)
     // 虚拟设备列表
     val bcVirtualItem = sc.broadcast(PhoenixFunctions.getVirtualItemList())
-    println(bcVirtualItem.value.size)
     // ItemCode Map(id-itemCode)
     val bcItemCodeById = sc.broadcast(PhoenixFunctions.getItemCodeById())
-    println(bcItemCodeById.value.size)
     // tbl_subentry Map(itemCode-subentry code) 010、01A、01B
     val bcSubentryCode = sc.broadcast(PhoenixFunctions.getSubentryMap())
-    println(bcSubentryCode.value.size)
+//    println(bcItemType.value.size)
+//    println(bcMaxValue.value.size)
+//    println(bcVirtualItem.value.size)
+//    println(bcItemCodeById.value.size)
+//    println(bcSubentryCode.value.size)
     /*
 		 * 创建累加器
 		 */
@@ -79,14 +80,14 @@ object CalculateHisData {
     var calculateFromTime = allTime.currentHourTime.replaceAll("\\D", "").toLong
     val calculateEndTime = errorEndTime.replaceAll("\\D", "").toLong
 
-    println("程序处理时间范围为" + errorFromTime + "~" + errorEndTime)
+    log.info("程序处理时间范围为" + errorFromTime + "~" + errorEndTime)
     // 是否计算到了配置的errorEndTime
     while (calculateFromTime < calculateEndTime) {
 
       // 读取DS_HisData表对应时间的历史数据
       val hisDataResultArr = PhoenixFunctions.getHisDataByTime(calculateFromTime.toString(), allTime.nextHourTime.replaceAll("\\D", ""))
-      println("本次查询历史表时间范围为" + calculateFromTime + "~" + allTime.nextHourTime.replaceAll("\\D", "") + "，查询记录数量为" + hisDataResultArr.length)
-      hisDataResultArr.foreach(println)
+      log.info("本次查询历史表时间范围为" + calculateFromTime + "~" + allTime.nextHourTime.replaceAll("\\D", "") + "，查询记录数量为" + hisDataResultArr.length)
+//      hisDataResultArr.foreach(println)
 
       if (!hisDataResultArr.isEmpty) {
         // 处理查询的数据
@@ -172,8 +173,8 @@ object CalculateHisData {
                   hourDataResult.filter(json => {
                     pattern.matcher(json.getString(6)).matches()
                   }))
-        println("写入的电小时数据")
-        hourDataResult.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
+        log.info("写入电小时数据")
+//        hourDataResult.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // other
                 PhoenixFunctions.phoenixWriteHbase(
                   PhoenixFunctions.DATA_NAMESPACE,
@@ -181,25 +182,25 @@ object CalculateHisData {
                   hourDataResult.filter(json => {
                     !pattern.matcher(json.getString(6)).matches()
                   }))
-        println("写入的other小时数据")
-        hourDataResult.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
+        log.info("写入other小时数据")
+//        hourDataResult.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // 更新tbl_item_current_info表
-                PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
-        println("更新的tbl_item_current_info表")
-        currentInfoAccu.value.foreach(println)
+        PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
+        log.info("更新tbl_item_current_info表")
+//        currentInfoAccu.value.foreach(println)
         // 清空累加器
         currentInfoAccu.reset()
         // 写入data_access表
-                PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
-        println("更新的data_access表")
-        dataAccessAccu.value.foreach(println)
+        PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
+        log.info("更新data_access表")
+//        dataAccessAccu.value.foreach(println)
         // 清空累加器
         dataAccessAccu.reset()
 
         // 计算分项小时表数据(在计算虚拟表之前)
         val elecHourData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.currentHourTime)
-        println("查询到的小时数据")
-        elecHourData.foreach(println)
+//        println("查询到的小时数据")
+//        elecHourData.foreach(println)
         val subHourData = sc.parallelize(elecHourData)
           .groupBy(_.getString(0).split("_")(0))
           .mapPartitions(partIt => {
@@ -255,25 +256,25 @@ object CalculateHisData {
                   PhoenixFunctions.DATA_NAMESPACE,
                   PhoenixFunctions.subentry_hour_table,
                   subHourData)
-        println("计算好的分项小时数据")
-        subHourData.foreach(println)
+        log.info("写入分项小时数据")
+//        subHourData.foreach(println)
 
         // 计算虚拟表数据
         // 两个小时之前
         // 获取前一个小时有更新的data_access
         // 确定已经处理了当前小时的数据，所以直接计算当前小时的虚拟表数据。在实时处理中逻辑有所差异。
         val dataAccessArray = PhoenixFunctions.getDataAccessList(calculateFromTime.toString())
-        println("查询到的data_access表信息")
-        dataAccessArray.foreach(println)
+//        println("查询到的data_access表信息")
+//        dataAccessArray.foreach(println)
         val virtualHourData = sc.parallelize(dataAccessArray).filter(json => {
-          SparkFunctions.checkStringTime(json.getString(3))
+          SparkFunctions.checkStringTime(json.getString(2))
         }).mapPartitions(partIt => {
           val resultPart = new ArrayBuffer[JSONArray]
           while (partIt.hasNext) {
             val dataAccessJson = partIt.next()
-            val buildingId = dataAccessJson.getString(1)
+            val buildingId = dataAccessJson.getString(0)
             // data_access中记录的时间
-            val time = dataAccessJson.getString(3).trim()
+            val time = dataAccessJson.getString(2).trim()
             // 获取记录时间的前一个小时
             // 此处直接使用记录时间
             val beforhour = time + "0000"
@@ -369,8 +370,8 @@ object CalculateHisData {
                   virtualHourData.filter(json => {
                     pattern.matcher(json.getString(6)).matches()
                   }))
-        println("计算好的虚拟表数据-电")
-        virtualHourData.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
+        log.info("写入虚拟表数据-电")
+//        virtualHourData.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // other
                 PhoenixFunctions.phoenixWriteHbase(
                   PhoenixFunctions.DATA_NAMESPACE,
@@ -378,10 +379,12 @@ object CalculateHisData {
                   virtualHourData.filter(json => {
                     !pattern.matcher(json.getString(6)).matches()
                   }))
-        println("计算好的虚拟表数据-other")
-        virtualHourData.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
+        log.info("写入虚拟表数据-other")
+//        virtualHourData.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // 更新data_access表
-                PhoenixFunctions.updateDataAccess(calculateFromTime.toString(), -1)
+        PhoenixFunctions.updateDataAccess(calculateFromTime.toString(), -1)
+        log.info("更新data_access表")
+                
       }
 
       // 计算下一小时数据
@@ -395,11 +398,11 @@ object CalculateHisData {
     calculateFromTime = allTime.currentDayTime.replaceAll("\\D", "").toLong
     while (calculateFromTime < calculateEndTime) {
 
-      println(s"计算天表本次查询范围${allTime.currentDayTime}~${allTime.nextDayTime}")
+      log.info(s"计算天表本次查询范围${allTime.currentDayTime}~${allTime.nextDayTime}")
       // 查询电小时表一天的数据
       val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.currentDayTime, allTime.nextDayTime)
-      println("查询到的电表一天的小时数据")
-      elecOneDayData.foreach(println)
+//      println("查询到的电表一天的小时数据")
+//      elecOneDayData.foreach(println)
       val elecDayResult = sc.parallelize(elecOneDayData)
         .filter(json => {
           json.getString(5) == "0" && SparkFunctions.checkStringTime(json.getString(1))
@@ -447,13 +450,13 @@ object CalculateHisData {
         }).collect()
       // 电-天数据存入天表
             PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_day_table, elecDayResult)
-      println("计算好的电天表数据")
-      elecDayResult.foreach(println)
+      log.info("写入电天表数据")
+//      elecDayResult.foreach(println)
 
       // 查询other小时表一天的数据
       val otherOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_hour_table, allTime.currentDayTime, allTime.nextDayTime)
-      println("查询到的other表一天的小时数据")
-      otherOneDayData.foreach(println)
+//      println("查询到的other表一天的小时数据")
+//      otherOneDayData.foreach(println)
       val otherDayResult = sc.parallelize(otherOneDayData)
         .filter(json => {
           json.getString(5) == "0" && SparkFunctions.checkStringTime(json.getString(1))
@@ -501,13 +504,13 @@ object CalculateHisData {
         }).collect()
       // other-天数据存入天表
             PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_day_table, otherDayResult)
-      println("计算好的other天表数据")
-      otherDayResult.foreach(println)
+      log.info("写入other天表数据")
+//      otherDayResult.foreach(println)
 
       // 查询分项小时表一天的数据
       val subOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, allTime.currentDayTime, allTime.nextDayTime)
-      println("查询到的分项表一天的小时数据")
-      subOneDayData.foreach(println)
+//      println("查询到的分项表一天的小时数据")
+//      subOneDayData.foreach(println)
       val subDayResult = sc.parallelize(subOneDayData)
         .filter(json => {
           SparkFunctions.checkStringTime(json.getString(7))
@@ -548,8 +551,8 @@ object CalculateHisData {
         }).collect()
       // 分项-天数据存入天表
             PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.subentry_day_table, subDayResult)
-      println("计算好的分项天表数据")
-      subDayResult.foreach(println)
+      log.info("写入分项天表数据")
+//      subDayResult.foreach(println)
 
       // 计算下一天的数据
       calculateFromTime = allTime.nextDayTime.replaceAll("\\D", "").toLong
@@ -562,11 +565,11 @@ object CalculateHisData {
     calculateFromTime = allTime.currentMonthTime.replaceAll("\\D", "").toLong
     while (calculateFromTime < calculateEndTime) {
 
-      println(s"月数据本次查询范围${allTime.currentMonthTime}~${allTime.nextMonthTime}")
+      log.info(s"月数据本次查询范围${allTime.currentMonthTime}~${allTime.nextMonthTime}")
       // 查询电天表一个月的数据
       val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.currentMonthTime, allTime.nextMonthTime)
-      println("查询到的电一个月的数据")
-      elecOneMonthData.foreach(println)
+//      println("查询到的电一个月的数据")
+//      elecOneMonthData.foreach(println)
       val elecMonthResult = sc.parallelize(elecOneMonthData)
         .filter(json => {
           json.getString(5) == "0" && SparkFunctions.checkStringTime(json.getString(1))
@@ -610,13 +613,13 @@ object CalculateHisData {
         }).collect()
       // 电-月数据存入月表
             PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_month_table, elecMonthResult)
-      println("计算好的电月表数据")
-      elecMonthResult.foreach(println)
+      log.info("写入电月表数据")
+//      elecMonthResult.foreach(println)
 
       // 查询other天表一个月的数据
       val otherOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_day_table, allTime.currentMonthTime, allTime.nextMonthTime)
-      println("查询到的一个月的other数据")
-      otherOneMonthData.foreach(println)
+//      println("查询到的一个月的other数据")
+//      otherOneMonthData.foreach(println)
       val otherMonthResult = sc.parallelize(otherOneMonthData)
         .filter(json => {
           json.getString(5) == "0" && SparkFunctions.checkStringTime(json.getString(1))
@@ -660,8 +663,8 @@ object CalculateHisData {
         }).collect()
       // other-月数据存入月表
             PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_month_table, otherMonthResult)
-      println("计算好的other月表数据")
-      otherMonthResult.foreach(println)
+      log.info("写入other月表数据")
+//      otherMonthResult.foreach(println)
 
       // 计算下一个月的数据
       calculateFromTime = allTime.nextMonthTime.replaceAll("\\D", "").toLong

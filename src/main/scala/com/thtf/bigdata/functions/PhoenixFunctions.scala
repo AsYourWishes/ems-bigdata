@@ -59,7 +59,7 @@ object PhoenixFunctions {
   def getHisDataByTime(startTime: String, endTime: String) = {
     val timeCol = "\"Timestamp\""
     var wheres = Array(timeCol + " <= '" + endTime + "'", timeCol + " >= '" + startTime + "'")
-    SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, hisdata_table, null, wheres))
+    SparkFunctions.result2JsonArr(PhoenixHelper.query("EMS_HISTORY_DATA", "DS_HisData_test_wangyh", null, wheres))
   }
   
   /**
@@ -220,7 +220,6 @@ object PhoenixFunctions {
     val timestamp = time.replaceAll("\\D", "").take(10)
     // data_access 表
     val DATA_ACCESS_SQL = s"""SELECT
-                              |  "id",
                               |  "build_code",
                               |  "collector_code",
                               |  "timestamp" 
@@ -241,7 +240,8 @@ object PhoenixFunctions {
     } catch {
       case t: Throwable => t.printStackTrace()
     }
-    SparkFunctions.result2JsonArr(resultSet)
+    // 对获取到的data_access表数据去重
+    SparkFunctions.result2JsonArr(resultSet).distinct
   }
   /**
    * 更新data_access数据,将处理过的数据type置为1
