@@ -6,14 +6,13 @@ import scala.collection.mutable.ArrayBuffer
 import com.thtf.bigdata.util.PropertiesUtils
 import com.thtf.bigdata.common.PropertiesConstant
 import com.thtf.bigdata.functions.SparkFunctions
-import org.apache.log4j.Logger
-import org.apache.log4j.Level
 import com.thtf.bigdata.functions.PhoenixFunctions
 import com.alibaba.fastjson.JSONArray
 import com.thtf.bigdata.spark.accumulator.JsonAccumulator
 import com.thtf.bigdata.spark.accumulator.JsonAccumulator
 import java.util.regex.Pattern
 import com.thtf.bigdata.util.FormulaUtil
+import org.slf4j.LoggerFactory
 
 /**
  * 重新计算DS_HisData中某一段时间的数据，存入对应表中。
@@ -22,7 +21,7 @@ object CalculateHisData {
   def main(args: Array[String]): Unit = {
 
     // Logger.getLogger("org").setLevel(Level.ERROR)
-    val log = Logger.getLogger(this.getClass)
+    val log = LoggerFactory.getLogger(this.getClass)
 
     // spark配置
     val master = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_MASTER)
@@ -80,12 +79,13 @@ object CalculateHisData {
     var calculateFromTime = allTime.currentHourTime.replaceAll("\\D", "").toLong
     val calculateEndTime = errorEndTime.replaceAll("\\D", "").toLong
 
+    println("程序处理时间范围为" + errorFromTime + "~" + errorEndTime)
     // 是否计算到了配置的errorEndTime
     while (calculateFromTime < calculateEndTime) {
 
       // 读取DS_HisData表对应时间的历史数据
       val hisDataResultArr = PhoenixFunctions.getHisDataByTime(calculateFromTime.toString(), allTime.nextHourTime.replaceAll("\\D", ""))
-      println("本次查询时间范围为" + errorFromTime + "~" + errorEndTime + "，查询记录数量为" + hisDataResultArr.length)
+      println("本次查询历史表时间范围为" + calculateFromTime + "~" + allTime.nextHourTime.replaceAll("\\D", "") + "，查询记录数量为" + hisDataResultArr.length)
       hisDataResultArr.foreach(println)
 
       if (!hisDataResultArr.isEmpty) {
@@ -166,31 +166,31 @@ object CalculateHisData {
         // 写入计算好的小时数据
         val pattern = Pattern.compile(" *A *")
         // 电
-        //        PhoenixFunctions.phoenixWriteHbase(
-        //          PhoenixFunctions.DATA_NAMESPACE,
-        //          PhoenixFunctions.elec_hour_table,
-        //          hourDataResult.filter(json => {
-        //            pattern.matcher(json.getString(6)).matches()
-        //          }))
+                PhoenixFunctions.phoenixWriteHbase(
+                  PhoenixFunctions.DATA_NAMESPACE,
+                  PhoenixFunctions.elec_hour_table,
+                  hourDataResult.filter(json => {
+                    pattern.matcher(json.getString(6)).matches()
+                  }))
         println("写入的电小时数据")
         hourDataResult.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // other
-        //        PhoenixFunctions.phoenixWriteHbase(
-        //          PhoenixFunctions.DATA_NAMESPACE,
-        //          PhoenixFunctions.other_hour_table,
-        //          hourDataResult.filter(json => {
-        //            !pattern.matcher(json.getString(6)).matches()
-        //          }))
+                PhoenixFunctions.phoenixWriteHbase(
+                  PhoenixFunctions.DATA_NAMESPACE,
+                  PhoenixFunctions.other_hour_table,
+                  hourDataResult.filter(json => {
+                    !pattern.matcher(json.getString(6)).matches()
+                  }))
         println("写入的other小时数据")
         hourDataResult.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // 更新tbl_item_current_info表
-        //        PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
+                PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
         println("更新的tbl_item_current_info表")
         currentInfoAccu.value.foreach(println)
         // 清空累加器
         currentInfoAccu.reset()
         // 写入data_access表
-        //        PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
+                PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
         println("更新的data_access表")
         dataAccessAccu.value.foreach(println)
         // 清空累加器
@@ -251,10 +251,10 @@ object CalculateHisData {
             resultPart.toIterator
           }).collect()
         // 将分项小时数据写入分项小时表
-        //        PhoenixFunctions.phoenixWriteHbase(
-        //          PhoenixFunctions.DATA_NAMESPACE,
-        //          PhoenixFunctions.subentry_hour_table,
-        //          subHourData)
+                PhoenixFunctions.phoenixWriteHbase(
+                  PhoenixFunctions.DATA_NAMESPACE,
+                  PhoenixFunctions.subentry_hour_table,
+                  subHourData)
         println("计算好的分项小时数据")
         subHourData.foreach(println)
 
@@ -363,25 +363,25 @@ object CalculateHisData {
         }).collect()
         // 写入计算好的虚拟表数据
         // 电
-        //        PhoenixFunctions.phoenixWriteHbase(
-        //          PhoenixFunctions.DATA_NAMESPACE,
-        //          PhoenixFunctions.elec_hour_table,
-        //          virtualHourData.filter(json => {
-        //            pattern.matcher(json.getString(6)).matches()
-        //          }))
+                PhoenixFunctions.phoenixWriteHbase(
+                  PhoenixFunctions.DATA_NAMESPACE,
+                  PhoenixFunctions.elec_hour_table,
+                  virtualHourData.filter(json => {
+                    pattern.matcher(json.getString(6)).matches()
+                  }))
         println("计算好的虚拟表数据-电")
         virtualHourData.filter(json => { pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // other
-        //        PhoenixFunctions.phoenixWriteHbase(
-        //          PhoenixFunctions.DATA_NAMESPACE,
-        //          PhoenixFunctions.other_hour_table,
-        //          virtualHourData.filter(json => {
-        //            !pattern.matcher(json.getString(6)).matches()
-        //          }))
+                PhoenixFunctions.phoenixWriteHbase(
+                  PhoenixFunctions.DATA_NAMESPACE,
+                  PhoenixFunctions.other_hour_table,
+                  virtualHourData.filter(json => {
+                    !pattern.matcher(json.getString(6)).matches()
+                  }))
         println("计算好的虚拟表数据-other")
         virtualHourData.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // 更新data_access表
-        //        PhoenixFunctions.updateDataAccess(calculateFromTime.toString(), -1)
+                PhoenixFunctions.updateDataAccess(calculateFromTime.toString(), -1)
       }
 
       // 计算下一小时数据
@@ -446,7 +446,7 @@ object CalculateHisData {
           resultPart.toIterator
         }).collect()
       // 电-天数据存入天表
-      //      PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_day_table, elecDayResult)
+            PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_day_table, elecDayResult)
       println("计算好的电天表数据")
       elecDayResult.foreach(println)
 
@@ -500,7 +500,7 @@ object CalculateHisData {
           resultPart.toIterator
         }).collect()
       // other-天数据存入天表
-      //      PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_day_table, otherDayResult)
+            PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_day_table, otherDayResult)
       println("计算好的other天表数据")
       otherDayResult.foreach(println)
 
@@ -547,7 +547,7 @@ object CalculateHisData {
           resultPart.toIterator
         }).collect()
       // 分项-天数据存入天表
-      //      PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.subentry_day_table, subDayResult)
+            PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.subentry_day_table, subDayResult)
       println("计算好的分项天表数据")
       subDayResult.foreach(println)
 
@@ -609,7 +609,7 @@ object CalculateHisData {
           resultPart.toIterator
         }).collect()
       // 电-月数据存入月表
-      //      PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_month_table, elecMonthResult)
+            PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.elec_month_table, elecMonthResult)
       println("计算好的电月表数据")
       elecMonthResult.foreach(println)
 
@@ -659,7 +659,7 @@ object CalculateHisData {
           resultPart.toIterator
         }).collect()
       // other-月数据存入月表
-      //      PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_month_table, otherMonthResult)
+            PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_month_table, otherMonthResult)
       println("计算好的other月表数据")
       otherMonthResult.foreach(println)
 
