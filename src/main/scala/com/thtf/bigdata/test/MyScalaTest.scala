@@ -12,9 +12,9 @@ object MyScalaTest {
 //    regexTest()
 //    distinctTest()
 //    stringCompare
-		 stringBuilderTest
-    
-    
+//		 stringBuilderTest
+//    codeFormatTest
+    jsonCompareTest
     
     
   }
@@ -87,6 +87,35 @@ object MyScalaTest {
     println(a)
     a.append(if (1 == 2) "4" else "456789")
     println(a)
+  }
+  
+  def codeFormatTest(){
+    val flag = {
+      1 == 1 &&
+      2 == 2 &&
+      "3" == "3"
+    }
+    println(flag)
+  }
+  
+  def jsonCompareTest(){
+    val json1 = new JSONArray
+    json1.add("123")
+    json1.add(null)
+    json1.add(123)
+    val json2 = new JSONArray
+    json2.add("123")
+    json2.add(null)
+    json2.add(123)
+    println(json1 == json2)
+    json2.add(123)
+    println(json1 == json2)
+    
+    println("abc",123)
+    println((s"${json1.getString(0)}_${json1.getString(1)}_${json1.getString(2)}",json1.getString(2)),(s"${json1.getString(0)}_${json1.getString(1)}_${json1.getString(2)}",json1.getString(2)))
+    println((s"${json1.getString(0)}_${json1.getString(1)}_${json1.getString(2)}",json1.getString(2)) == (s"${json1.getString(0)}_${json1.getString(1)}_${json1.getString(2)}",json1.getString(2)))
+    
+    
   }
   
   
