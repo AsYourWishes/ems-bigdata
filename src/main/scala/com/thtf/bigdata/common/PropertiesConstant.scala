@@ -8,7 +8,8 @@ object PropertiesConstant {
   // kafka
   val KAFKA_BROKERS = "kafka.brokers"
   val KAFKA_TOPICS = "kafka.topics"
-  val KAFKA_GROUP_ID = "kafka.group.id"
+  val KAFKA_GROUPID_SAVEHISDATA = "kafka.groupId.saveHisData"
+  val KAFKA_GROUPID_STREAMPROCESSING = "kafka.groupId.streamProcessing"
   val KAFKA_AUTO_OFFSET_RESET = "kafka.auto.offset.reset"
   
   // zookeeper
