@@ -13,6 +13,12 @@ import com.thtf.bigdata.kafka.ZkKafkaOffsetManager
 import org.apache.spark.streaming.kafka010.KafkaUtils
 import org.apache.spark.streaming.kafka010.LocationStrategies
 import org.apache.spark.streaming.kafka010.ConsumerStrategies
+import com.alibaba.fastjson.JSON
+import com.thtf.bigdata.functions.SparkFunctions
+import scala.collection.mutable.ArrayBuffer
+import com.alibaba.fastjson.JSONArray
+import com.thtf.bigdata.functions.PhoenixFunctions
+import org.apache.spark.streaming.kafka010.HasOffsetRanges
 
 /**
  * 读取kafka数据，筛选并存入DS_HisData历史数据表、或DS_HisData_error错误数据表中
@@ -80,9 +86,45 @@ object SaveKafkaRecords {
         LocationStrategies.PreferConsistent, 
         ConsumerStrategies.Subscribe[String,String](Seq(topicsSet.head), kafkaParams, offsetsMap))
     
-    
-    
-    
+    /*
+     *  处理从kafka拉取到的数据
+     *  错误表：时间格式不正确的，时间为null的，value无值的
+     */
+    inputDStream.foreachRDD(rdd => {
+      // 将错误数据存入错误表
+      rdd.filter(consumerRecord => {
+        val recordJson = JSON.parseArray(consumerRecord.value())
+        !SparkFunctions.checkStringTime(recordJson.getString(9)) || !SparkFunctions.checkStringNumber(recordJson.getString(7))
+      }).mapPartitions(partIt => {
+        val mapPartResult = ArrayBuffer[JSONArray]()
+        while (partIt.hasNext) {
+          mapPartResult.append(JSON.parseArray(partIt.next().value()))
+        }
+        mapPartResult.toIterator
+      }).foreachPartition(partIt => {
+        PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.hisdata_table_error, partIt.toArray)
+      })
+      // 将其他数据存入历史表
+      rdd.filter(consumerRecord => {
+    	  val recordJson = JSON.parseArray(consumerRecord.value())
+    			  SparkFunctions.checkStringTime(recordJson.getString(9)) && SparkFunctions.checkStringNumber(recordJson.getString(7))
+      }).mapPartitions(partIt => {
+    	  val mapPartResult = ArrayBuffer[JSONArray]()
+    			  while (partIt.hasNext) {
+    				  mapPartResult.append(JSON.parseArray(partIt.next().value()))
+    			  }
+    	  mapPartResult.toIterator
+      }).foreachPartition(partIt => {
+    	  PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.hisdata_table, partIt.toArray)
+      })
+      // 提交offset
+      val newOffsetsMap = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
+      offsetManager.saveOffsets(newOffsetsMap, groupId)
+      log.info("更新offset成功,offset:")
+      newOffsetsMap.foreach(offset => {
+        log.info("partition:" + offset.partition + ",起始offset：" + offset.fromOffset + ",截至offset：" + offset.untilOffset)
+      })
+    })
     
     ssc.start()
     var isRunning = true
