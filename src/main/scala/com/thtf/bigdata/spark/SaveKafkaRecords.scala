@@ -98,7 +98,13 @@ object SaveKafkaRecords {
       }).mapPartitions(partIt => {
         val mapPartResult = ArrayBuffer[JSONArray]()
         while (partIt.hasNext) {
-          mapPartResult.append(JSON.parseArray(partIt.next().value()))
+          val nextRecord = partIt.next()
+          try {
+        	  mapPartResult.append(JSON.parseArray(nextRecord.value()))
+          } catch {
+            case t: Throwable => t.printStackTrace() // TODO: handle error
+            log.error(s"含错数据转换JSONArray异常，异常数据为：$nextRecord")
+          }
         }
         mapPartResult.toIterator
       }).foreachPartition(partIt => {
@@ -111,7 +117,13 @@ object SaveKafkaRecords {
       }).mapPartitions(partIt => {
     	  val mapPartResult = ArrayBuffer[JSONArray]()
     			  while (partIt.hasNext) {
-    				  mapPartResult.append(JSON.parseArray(partIt.next().value()))
+    				  val nextRecord = partIt.next()
+          try {
+        	  mapPartResult.append(JSON.parseArray(nextRecord.value()))
+          } catch {
+            case t: Throwable => t.printStackTrace() // TODO: handle error
+            log.error(s"正常数据转换JSONArray异常，异常数据为：$nextRecord")
+          }
     			  }
     	  mapPartResult.toIterator
       }).foreachPartition(partIt => {
