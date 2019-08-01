@@ -44,6 +44,7 @@ object ZkOrKafkaFunctions {
    */
   def getViableOffsets(beginningOffsets: Map[TopicPartition, Long], recordedOffsets: Map[TopicPartition, Long]) = {
     // 如果手动记录为空，会按配置的earliest或latest消费
+    // TODO 只有部分分区数据过期时，替换过期分区的offset
     var viableOffsets = recordedOffsets
     if (!recordedOffsets.isEmpty) {
       import scala.util.control.Breaks._
