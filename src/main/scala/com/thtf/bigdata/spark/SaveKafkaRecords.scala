@@ -1,7 +1,5 @@
 package com.thtf.bigdata.spark
 
-import org.apache.log4j.Logger
-import org.apache.log4j.Level
 import org.apache.spark.streaming.StreamingContext
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming.Seconds
@@ -19,6 +17,7 @@ import scala.collection.mutable.ArrayBuffer
 import com.alibaba.fastjson.JSONArray
 import com.thtf.bigdata.functions.PhoenixFunctions
 import org.apache.spark.streaming.kafka010.HasOffsetRanges
+import org.slf4j.LoggerFactory
 
 /**
  * 读取kafka数据，筛选并存入DS_HisData历史数据表、或DS_HisData_error错误数据表中
@@ -27,7 +26,7 @@ object SaveKafkaRecords {
   def main(args: Array[String]): Unit = {
     
 //    Logger.getLogger("org").setLevel(Level.ERROR)
-    val log = Logger.getLogger(this.getClass)
+    val log = LoggerFactory.getLogger(this.getClass)
     
     // spark配置
     val master = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_MASTER)
@@ -41,7 +40,8 @@ object SaveKafkaRecords {
     val brokers = PropertiesUtils.getPropertiesByKey(PropertiesConstant.KAFKA_BROKERS)
     // <topics> kafka的主题
     val topics = PropertiesUtils.getPropertiesByKey(PropertiesConstant.KAFKA_TOPICS)
-    val groupId = PropertiesUtils.getPropertiesByKey(PropertiesConstant.KAFKA_GROUP_ID)
+    // 读取kafka并处理数据的group为：kafka.groupId.saveHisData=saveKafkaRecords-001
+    val groupId = PropertiesUtils.getPropertiesByKey(PropertiesConstant.KAFKA_GROUPID_SAVEHISDATA)
     val autoOffsetReset = PropertiesUtils.getPropertiesByKey(PropertiesConstant.KAFKA_AUTO_OFFSET_RESET)
     
     // zk配置
@@ -138,10 +138,12 @@ object SaveKafkaRecords {
       })
     })
     
+    // 启动sparkstreaming
+    // 保持sparkstreaming持续运行
     ssc.start()
     var isRunning = true
     while (isRunning) {
-      if(ssc.awaitTerminationOrTimeout(1000)){
+      if(ssc.awaitTerminationOrTimeout(10000)){
         log.error("WARNING!!! Spark StreamingContext 已经意外停止！")
         // 停止scala程序
         isRunning = false
