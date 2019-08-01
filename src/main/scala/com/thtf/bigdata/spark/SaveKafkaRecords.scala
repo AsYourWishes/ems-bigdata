@@ -103,7 +103,7 @@ object SaveKafkaRecords {
         	  mapPartResult.append(JSON.parseArray(nextRecord.value()))
           } catch {
             case t: Throwable => t.printStackTrace() // TODO: handle error
-            log.error(s"含错数据转换JSONArray异常，异常数据为：$nextRecord")
+            log.error(s"格式异常数据转换JSONArray异常，异常数据为：$nextRecord")
           }
         }
         mapPartResult.toIterator
@@ -122,7 +122,7 @@ object SaveKafkaRecords {
         	  mapPartResult.append(JSON.parseArray(nextRecord.value()))
           } catch {
             case t: Throwable => t.printStackTrace() // TODO: handle error
-            log.error(s"正常数据转换JSONArray异常，异常数据为：$nextRecord")
+            log.error(s"格式正常数据转换JSONArray异常，异常数据为：$nextRecord")
           }
     			  }
     	  mapPartResult.toIterator
