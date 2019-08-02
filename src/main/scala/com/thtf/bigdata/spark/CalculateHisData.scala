@@ -37,8 +37,10 @@ object CalculateHisData {
     val sc = new SparkContext(sparkConf)
 
     // 如果配置的时间不正确，直接结束
-    if (SparkFunctions.checkStringTime(errorFromTime, errorEndTime) == false) return
-    log.error("配置的时间不正确，请重新配置")
+    if (SparkFunctions.checkStringTime(errorFromTime, errorEndTime) == false) {
+    	log.error("配置的时间不正确，请重新配置")
+      return
+    }
 
     /*
 		 * 创建广播变量
@@ -305,7 +307,7 @@ object CalculateHisData {
                   val itemCode = bcItemCodeById.value.getOrElse(id, null)
                   if (itemCode != null) {
                     // 获取对应小时数据
-                    val valueMap = PhoenixFunctions.getHourData(hourTableName, itemCode, beforhour, "0")
+                    val valueMap = PhoenixFunctions.getHourDataByCode(hourTableName, itemCode, beforhour, "0")
                     if (!valueMap.isEmpty) {
                       val mapValue = valueMap.head.getString(0)
                       val mapRealValue = valueMap.head.getString(1)
