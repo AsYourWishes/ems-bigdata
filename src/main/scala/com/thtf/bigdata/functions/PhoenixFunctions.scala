@@ -57,9 +57,19 @@ object PhoenixFunctions {
    * @return
    */
   def getHisDataByTime(startTime: String, endTime: String) = {
+    val columns = Array("BuildingID",
+                        "GateID",
+                        "MeterID",
+                        "ParamID",
+                        "Type",
+                        "Name",
+                        "Status",
+                        "Value",
+                        "Unit",
+                        "Timestamp")
     val timeCol = "\"Timestamp\""
     var wheres = Array(timeCol + " <= '" + endTime + "'", timeCol + " >= '" + startTime + "'")
-    SparkFunctions.result2JsonArr(PhoenixHelper.query("EMS_HISTORY_DATA", "DS_HisData_test_wangyh", null, wheres))
+    SparkFunctions.result2JsonArr(PhoenixHelper.query("EMS_HISTORY_DATA", "DS_HisData_test_wangyh", columns, wheres))
   }
   
   /**
