@@ -69,7 +69,7 @@ object PhoenixFunctions {
                         "Timestamp")
     val timeCol = "\"Timestamp\""
     var wheres = Array(timeCol + " <= '" + endTime + "'", timeCol + " >= '" + startTime + "'")
-    SparkFunctions.result2JsonArr(PhoenixHelper.query("EMS_HISTORY_DATA", "DS_HisData_test_wangyh", columns, wheres))
+    SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, hisdata_table, columns, wheres))
   }
   
   /**
@@ -410,7 +410,7 @@ object PhoenixFunctions {
     var columns: Array[String] = null
     if (tablename == elec_day_table || tablename == other_day_table) {
       columns = Array("item_name",
-                      """TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""",
+                      "TO_CHAR(CONVERT_TZ(\"date_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')",
                       "value",
                       "real_value",
                       "rate",
@@ -426,10 +426,10 @@ object PhoenixFunctions {
                       "electricity_c",
                       "electricity_d",
                        "rate",
-                       """TO_CHAR(CONVERT_TZ("data_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""")
+                       "TO_CHAR(CONVERT_TZ(\"data_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')")
     }else {
       columns = Array("item_name",
-                      """TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""",
+                      "TO_CHAR(CONVERT_TZ(\"date_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')",
                       "value",
                       "real_value",
                       "rate",
