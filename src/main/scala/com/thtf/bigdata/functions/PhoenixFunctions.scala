@@ -151,6 +151,16 @@ object PhoenixFunctions {
     }
   }
   /**
+   * 
+   */
+  def getCurrentInfoMap(){
+    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(INFO_NAMESPACE, current_info_table, null, null))
+      .map(json => {
+        ((json.getString(1),json.getString(5)),json.getString(0))
+      }).toMap
+  }
+  
+  /**
    * 更新tbl_item_current_info表
    */
   def updateCurrentInfo(jsonArray: ArrayBuffer[JSONArray]){
@@ -339,7 +349,7 @@ object PhoenixFunctions {
   /**
    * 通过itemCode和datetime查询小时数据
    */
-  def getHourData(tablename: String,itemCode: String, dateTime:String, error: String) = {
+  def getHourDataByCode(tablename: String,itemCode: String, dateTime:String, error: String) = {
     val columns = Array("value","real_value","rate")
     val wheres = Array(s""" "item_name" = '${itemCode}' """,s""" "date_time" = TO_TIMESTAMP('${dateTime}') """,s""" "error" = ${error} """)
     SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, tablename, columns, wheres))
@@ -377,20 +387,52 @@ object PhoenixFunctions {
     subentryMap
   }
   
+  /**
+   * 获取统计表某段时间的数据
+   */
   def getEnergyDataByTime(tablename:String,dateTime: String,endTime:String = null) = {
-    var column:String = null
+    var timeCol:String = null
     if(tablename == subentry_hour_table || tablename == subentry_day_table){
-      column = "\"data_time\""
+      timeCol = "\"data_time\""
     }else {
-      column = "\"date_time\""
+      timeCol = "\"date_time\""
+    }
+    var columns: Array[String] = null
+    if (tablename == elec_day_table || tablename == other_day_table) {
+      columns = Array("item_name",
+                      """TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""",
+                      "value",
+                      "real_value",
+                      "rate",
+                      "error",
+                      "work_time_value",
+                      "other_time_value",
+                      "type")
+    }else if (tablename == subentry_hour_table || tablename == subentry_day_table) {
+      columns = Array("building_code",
+                      "electricity",
+                      "electricity_a",
+                      "electricity_b",
+                      "electricity_c",
+                      "electricity_d",
+                       "rate",
+                       """TO_CHAR(CONVERT_TZ("data_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""")
+    }else {
+      columns = Array("item_name",
+                      """TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')""",
+                      "value",
+                      "real_value",
+                      "rate",
+                      "error",
+                      "type")
     }
     var wheres: Array[String] = null
     if(endTime == null){
-    	wheres = Array(s"${column} = TO_TIMESTAMP('${dateTime}')")
+    	wheres = Array(s"${timeCol} = TO_TIMESTAMP('${dateTime}')")
     }else {
-  	  wheres = Array(s"${column} >= TO_TIMESTAMP('${dateTime}')",s"${column} < TO_TIMESTAMP('${endTime}')")
+  	  wheres = Array(s"${timeCol} >= TO_TIMESTAMP('${dateTime}')",s"${timeCol} < TO_TIMESTAMP('${endTime}')")
     }
-  	SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, tablename, null, wheres))
+  	SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, tablename, columns, wheres))
   }
   
   
