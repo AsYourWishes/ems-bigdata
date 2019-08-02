@@ -57,7 +57,7 @@ object SaveKafkaRecords {
     val ssc = new StreamingContext(sparkConf,Seconds(batchInterval))
     
     //--设置检查点目录
-    ssc.checkpoint(PropertiesUtils.getPropertiesByKey(checkpoint))
+    ssc.checkpoint(checkpoint)
     
     val topicsSet = topics.split(",").toSet
     
