@@ -216,7 +216,7 @@ object CalculateHisData {
               var value_c = 0d
               var value_d = 0d
               // var dataTime = ""
-              val rate = ""
+              val rate = "0"
               val jsonArray = buildingJsons._2.iterator
               while (jsonArray.hasNext) {
                 val json = jsonArray.next()
