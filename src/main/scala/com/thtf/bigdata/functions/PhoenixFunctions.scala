@@ -68,7 +68,7 @@ object PhoenixFunctions {
                         "Unit",
                         "Timestamp")
     val timeCol = "\"Timestamp\""
-    var wheres = Array(timeCol + " <= '" + endTime + "'", timeCol + " >= '" + startTime + "'")
+    var wheres = Array(timeCol + " >= '" + startTime + "'", timeCol + " < '" + endTime + "'")
     SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, hisdata_table, columns, wheres))
   }
   
@@ -84,9 +84,9 @@ object PhoenixFunctions {
     // 读取item表，放入map中
     // (code,(basic_code,table_name,id))
     // (code,(basic_code,id))     (01-1,(A,11))
-    val itemMap = new HashMap[String, (String,String)]()
+    val itemMap = new HashMap[String, (String,Long)]()
     while (itemResultSet.next()) {
-      itemMap.put(itemResultSet.getString(1), (itemResultSet.getString(2),itemResultSet.getString(3)))
+      itemMap.put(itemResultSet.getString(1), (itemResultSet.getString(2),itemResultSet.getLong(3)))
     }
     itemMap
   }
@@ -124,9 +124,9 @@ object PhoenixFunctions {
     }
     val maxValueMap = new HashMap[(String,String),Double]()
     while (resultSet.next()) {
-      var maxValue = 10000d
-      if(SparkFunctions.checkStringNumber(resultSet.getString(5))){
-        maxValue = resultSet.getString(5).toDouble
+      var maxValue = resultSet.getDouble(5)
+      if(resultSet.getDouble(5) == null){
+        maxValue = 10000
 		  }
       maxValueMap.put((s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4)), maxValue)
     }
@@ -161,12 +161,27 @@ object PhoenixFunctions {
     }
   }
   /**
-   * 
+   * 获取tbl_item_current_info表上一次的记录
    */
-  def getCurrentInfoMap(){
-    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(INFO_NAMESPACE, current_info_table, null, null))
+  def getCurrentInfoMap() = {
+    val CURRENT_INFO_TABLE = s"""SELECT
+                              |  "item_code",
+                              |  TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss'),
+                              |  "real_value",
+                          		|  "data_type" 
+                              |FROM
+                              |  ${INFO_NAMESPACE}."${current_info_table}" """.stripMargin
+    var resultSet: ResultSet = null
+    try {
+      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      val pres = conn.prepareStatement(CURRENT_INFO_TABLE)
+      resultSet = pres.executeQuery()
+    } catch {
+      case t: Throwable => t.printStackTrace()
+    }
+    SparkFunctions.result2JsonArr(resultSet)
       .map(json => {
-        ((json.getString(1),json.getString(5)),json.getString(0))
+        ((json.getString(0),json.getString(3)),(json.getString(1),json.getDouble(2)))
       }).toMap
   }
   
@@ -185,19 +200,19 @@ object PhoenixFunctions {
     }
     var count = 0L
     while(resultSet.next()){
-      if(resultSet.getString(1) != null && resultSet.getString(1) != "null"){
-    	  count = resultSet.getString(1).trim().toLong
+      if(resultSet.getLong(1) != null){
+    	  count = resultSet.getLong(1)
       }
     }
     val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(INFO_NAMESPACE, current_info_table, null, null))
       .map(json => {
-        ((json.getString(1),json.getString(5)),json.getString(0))
+        ((json.getString(1),json.getString(5)),json.getLong(0))
       }).toMap
     for(i <- 0 until jsonArray.length){
       var id = resultMap.getOrElse((jsonArray(i).getString(0),jsonArray(i).getString(4)), null)
       if(id == null){
         count = count + 1
-        id = count.toString()
+        id = count
       }
       jsonArray(i).add(0, id)
     }
@@ -219,8 +234,8 @@ object PhoenixFunctions {
     }
     var count = 0L
     while(resultSet.next()){
-      if(resultSet.getString(1) != null && resultSet.getString(1) != "null"){
-    	  count = resultSet.getString(1).trim().toLong
+      if(resultSet.getLong(1) != null){
+    	  count = resultSet.getLong(1)
       }
     }
     // 去重
@@ -350,9 +365,9 @@ object PhoenixFunctions {
     } catch {
       case t: Throwable => t.printStackTrace()
     }
-    val itemCodeIdMap = new HashMap[String,String]()
+    val itemCodeIdMap = new HashMap[Long,String]()
     while (resultSet.next()) {
-      itemCodeIdMap.put(resultSet.getString(1),s"${resultSet.getString(2)}_${resultSet.getString(3)}_${resultSet.getString(4)}")
+      itemCodeIdMap.put(resultSet.getLong(1),s"${resultSet.getString(2)}_${resultSet.getString(3)}_${resultSet.getString(4)}")
     }
     itemCodeIdMap
   }
@@ -392,7 +407,7 @@ object PhoenixFunctions {
     }
     val subentryMap = new HashMap[String,String]
     while(resultSet.next()){
-      subentryMap.put(resultSet.getString(1),s"${resultSet.getString(2)}_${resultSet.getString(3)}_${resultSet.getString(4)}")
+      subentryMap.put(s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4))
     }
     subentryMap
   }
@@ -403,46 +418,62 @@ object PhoenixFunctions {
   def getEnergyDataByTime(tablename:String,dateTime: String,endTime:String = null) = {
     var timeCol:String = null
     if(tablename == subentry_hour_table || tablename == subentry_day_table){
-      timeCol = "\"data_time\""
+      timeCol = "data_time"
     }else {
-      timeCol = "\"date_time\""
+      timeCol = "date_time"
     }
-    var columns: Array[String] = null
+    var GET_ENERGY_DATA = ""
     if (tablename == elec_day_table || tablename == other_day_table) {
-      columns = Array("item_name",
-                      "TO_CHAR(CONVERT_TZ(\"date_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')",
-                      "value",
-                      "real_value",
-                      "rate",
-                      "error",
-                      "work_time_value",
-                      "other_time_value",
-                      "type")
+      GET_ENERGY_DATA = GET_ENERGY_DATA + s"""|SELECT
+                                              |  "item_name",
+                                              |  TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss'),
+                                              |  "value",
+                                              |  "real_value",
+                                              |  "rate",
+                                              |  "error",
+                                              |  "work_time_value",
+                                              |  "other_time_value",
+                                              |  "type"
+                                              |FROM
+                                              |  ${DATA_NAMESPACE}."${tablename}" """.stripMargin
     }else if (tablename == subentry_hour_table || tablename == subentry_day_table) {
-      columns = Array("building_code",
-                      "electricity",
-                      "electricity_a",
-                      "electricity_b",
-                      "electricity_c",
-                      "electricity_d",
-                       "rate",
-                       "TO_CHAR(CONVERT_TZ(\"data_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')")
+      GET_ENERGY_DATA = GET_ENERGY_DATA + s"""|SELECT
+                                              |  "building_code",
+                                              |  "electricity",
+                                              |  "electricity_a",
+                                              |  "electricity_b",
+                                              |  "electricity_c",
+                                              |  "electricity_d",
+                                              |  "rate",
+                                              |  TO_CHAR(CONVERT_TZ("data_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')
+                                              |FROM
+                                              |  ${DATA_NAMESPACE}."${tablename}" """.stripMargin
     }else {
-      columns = Array("item_name",
-                      "TO_CHAR(CONVERT_TZ(\"date_time\", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss')",
-                      "value",
-                      "real_value",
-                      "rate",
-                      "error",
-                      "type")
+      GET_ENERGY_DATA = GET_ENERGY_DATA + s"""|SELECT
+                                              |  "item_name",
+                                              |  TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss'),
+                                              |  "value",
+                                              |  "real_value",
+                                              |  "rate",
+                                              |  "error",
+                                              |  "type"
+                                              |FROM
+                                              |  ${DATA_NAMESPACE}."${tablename}" """.stripMargin
     }
-    var wheres: Array[String] = null
     if(endTime == null){
-    	wheres = Array(s"${timeCol} = TO_TIMESTAMP('${dateTime}')")
+    	GET_ENERGY_DATA = GET_ENERGY_DATA + s""" WHERE "${timeCol}" = TO_TIMESTAMP('${dateTime}') """
     }else {
-  	  wheres = Array(s"${timeCol} >= TO_TIMESTAMP('${dateTime}')",s"${timeCol} < TO_TIMESTAMP('${endTime}')")
+		  GET_ENERGY_DATA = GET_ENERGY_DATA + s""" WHERE "${timeCol}" >= TO_TIMESTAMP('${dateTime}') AND "${timeCol}" < TO_TIMESTAMP('${endTime}') """
     }
-  	SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, tablename, columns, wheres))
+  	var resultSet: ResultSet = null
+    try {
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      val pres = conn.prepareStatement(GET_ENERGY_DATA)
+      resultSet = pres.executeQuery()
+    } catch {
+      case t: Throwable => t.printStackTrace()
+    }
+    SparkFunctions.result2JsonArr(resultSet)
   }
   
   
