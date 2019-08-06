@@ -23,14 +23,18 @@ import com.thtf.bigdata.entity.DateTimeEntity
  */
 object CalculateHisData {
   
-  def getLongTime(time:String) = {
-    (time.replaceAll("\\D", "").dropRight(4) + "0000").toLong
-  }
   // yyyyMMddHHmmss -> yyyy-MM-dd HH:mm:ss
   def getyy_MM_ddTime(time:String) = {
     val yy_MM_dd = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 		val yyMMdd = new SimpleDateFormat("yyyyMMddHHmmss")
     yy_MM_dd.format(yyMMdd.parse(time.replaceAll("\\D", "").dropRight(4) + "0000"))
+  }
+  def getyy_MM_ddTime(time:Long) = {
+		  val yy_MM_dd = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+		  yy_MM_dd.format(new Date(time))
+  }
+  def getTimestamp(time:String) = {
+    new SimpleDateFormat("yyyyMMddHHmmss").parse(time.replaceAll("\\D", "").dropRight(4) + "0000").getTime
   }
   
   def main(args: Array[String]): Unit = {
@@ -115,7 +119,7 @@ object CalculateHisData {
     	log.info("从上次程序结束记录的时间开始处理，处理时间范围为" + lastTimeRecord + "~" + errorEndTime)
     }
     // 是否计算到了配置的errorEndTime
-    while (calculateFromTime < calculateEndTime) {
+    while (calculateFromTime <= calculateEndTime) {
 
       // 读取DS_HisData表对应时间的历史数据
       val hisDataResultArr = PhoenixFunctions.getHisDataByTime(calculateFromTime.toString(), allTime.nextHourTime.replaceAll("\\D", ""))
@@ -152,7 +156,7 @@ object CalculateHisData {
               val valueJsonArray = keyTypeValues._2
                 .toArray
                 .filter(_.getString(6).trim() == "0") // 只计算status为0的数据
-                .sortBy(_.getString(9).trim().toLong)
+                .sortBy(json => getTimestamp(json.getString(9)))
               if (!valueJsonArray.isEmpty) {
                 // 获取item_name上一次数据记录
                 var lastCurrentInfo = bcCurrentInfo.value.getOrElse((itemName,typeId),null)
@@ -161,7 +165,7 @@ object CalculateHisData {
             		// 记录current_info数据
                 val currentInfoJson = new JSONArray
                 // 如果没有上一次的记录，或者本次第一条数据时间超过上次一小时，则记录本次查询第一条数据，不计算
-                if(lastCurrentInfo == null || getLongTime(headJsonTime) - getLongTime(lastCurrentInfo._1) > 10000){
+                if(lastCurrentInfo == null || getTimestamp(headJsonTime) - getTimestamp(lastCurrentInfo._1) > 3600000){
                   lastCurrentInfo = (getyy_MM_ddTime(headJsonTime),headJson.getString(7).toDouble)
                   currentInfoJson.add(itemName)
                   currentInfoJson.add(getyy_MM_ddTime(headJsonTime))
@@ -175,7 +179,7 @@ object CalculateHisData {
                   for(i <- 0 until valueJsonArray.length if flag){
                 	  val nextJson = valueJsonArray(i)
                 	  // 如果相差一小时，计算小时数据，并记录最新currentInfo
-                	  if(getLongTime(nextJson.getString(9)) - getLongTime(lastCurrentInfo._1) == 10000){
+                	  if(getTimestamp(nextJson.getString(9)) - getTimestamp(lastCurrentInfo._1) == 3600000){
                     	// 记算小时数据
                     	val currentInfoValue = lastCurrentInfo._2
                 			val nextValue = nextJson.getString(7)
@@ -190,7 +194,7 @@ object CalculateHisData {
                 			// 记录小时数据
                 			val hourResultJson = new JSONArray
                 			hourResultJson.add(itemName)
-                			hourResultJson.add(allTime.currentHourTime)
+                			hourResultJson.add(getyy_MM_ddTime(lastCurrentInfo._1)) // 本次记录 - 上次记录 = 上小时数据
                 			hourResultJson.add(energyValue)
                 			hourResultJson.add(nextValue)
                 			hourResultJson.add(totalRate)
@@ -258,7 +262,8 @@ object CalculateHisData {
         dataAccessAccu.reset()
 
         // 计算分项小时表数据(在计算虚拟表之前)
-        val elecHourData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.currentHourTime)
+        val elecHourData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastHourTime)
+        log.info(s"计算分项小时表本次查询时间为：${allTime.lastHourTime},查询数据量为${elecHourData.length}")
         //        println("查询到的小时数据")
         //        elecHourData.foreach(println)
         val subHourData = sc.parallelize(elecHourData)
@@ -281,7 +286,8 @@ object CalculateHisData {
                 // dataTime = json.getString(1)
                 val error = json.getString(5)
                 if (error != null && error.trim() == "0") {
-                  var subCode = bcSubentryCode.value.getOrElse(buildingCode, null)
+                  val itemCode = json.getString(0)
+                  var subCode = bcSubentryCode.value.getOrElse(itemCode, null)
                   if (subCode != null) {
                     subCode = subCode.trim().take(3)
                     val dataValue = json.getDouble(2)
@@ -302,7 +308,7 @@ object CalculateHisData {
               buildingResult.add(value_c)
               buildingResult.add(value_d)
               buildingResult.add(rate)
-              buildingResult.add(allTime.currentHourTime)
+              buildingResult.add(allTime.lastHourTime)
               // 放入mapPartition中
               resultPart.append(buildingResult)
             }
@@ -319,8 +325,9 @@ object CalculateHisData {
         // 计算虚拟表数据
         // 两个小时之前
         // 获取前一个小时有更新的data_access
-        // 确定已经处理了当前小时的数据，所以直接计算当前小时的虚拟表数据。在实时处理中逻辑有所差异。
+        // 确定已经得到了上一小时的数据，所以查询当前小时的虚拟表数据。在实时处理中逻辑有所差异。
         val dataAccessArray = PhoenixFunctions.getDataAccessList(calculateFromTime.toString())
+        log.info(s"计算计算虚拟表本次查询data_access时间为：${allTime.currentHourTime},查询数据量为${dataAccessArray.length}")
         //        println("查询到的data_access表信息")
         //        dataAccessArray.foreach(println)
         val virtualHourData = sc.parallelize(dataAccessArray).filter(json => {
@@ -333,8 +340,7 @@ object CalculateHisData {
             // data_access中记录的时间
             val time = dataAccessJson.getString(2).trim()
             // 获取记录时间的前一个小时
-            // 此处直接使用记录时间
-            val beforhour = time + "0000"
+            val beforhour = getyy_MM_ddTime(getTimestamp(time + "0000") - 3600000)
             // 获取虚拟设备列表
             val virtualItemList = bcVirtualItem.value.filter(json => {
               json.getString(0) == buildingId
@@ -444,10 +450,10 @@ object CalculateHisData {
       }
       
       // 计算天数据
-      if(allTime.nextHourTime == allTime.nextDayTime || allTime.nextHourTime == getyy_MM_ddTime(errorEndTime)){
+      if(allTime.currentHourTime == allTime.currentDayTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
       // 查询电小时表一天的数据
-      val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.currentDayTime, allTime.nextDayTime)
-    		  log.info(s"计算天表本次查询范围${allTime.currentDayTime}~${allTime.nextDayTime},查询数据量为${elecOneDayData.length}")
+      val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+		  log.info(s"计算电天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${elecOneDayData.length}")
       //      println("查询到的电表一天的小时数据")
       //      elecOneDayData.foreach(println)
       val elecDayResult = sc.parallelize(elecOneDayData)
@@ -479,7 +485,7 @@ object CalculateHisData {
             // 记录天数据
             val dayDataJson = new JSONArray
             dayDataJson.add(itemCode)
-            dayDataJson.add(allTime.currentDayTime)
+            dayDataJson.add(allTime.lastDayTime)
             dayDataJson.add(value)
             dayDataJson.add(realValue)
             dayDataJson.add(rate)
@@ -498,7 +504,8 @@ object CalculateHisData {
       //      elecDayResult.foreach(println)
 
       // 查询other小时表一天的数据
-      val otherOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_hour_table, allTime.currentDayTime, allTime.nextDayTime)
+      val otherOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+      log.info(s"计算other天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${otherOneDayData.length}")
       //      println("查询到的other表一天的小时数据")
       //      otherOneDayData.foreach(println)
       val otherDayResult = sc.parallelize(otherOneDayData)
@@ -530,7 +537,7 @@ object CalculateHisData {
             // 记录天数据
             val dayDataJson = new JSONArray
             dayDataJson.add(itemCode)
-            dayDataJson.add(allTime.currentDayTime)
+            dayDataJson.add(allTime.lastDayTime)
             dayDataJson.add(value)
             dayDataJson.add(realValue)
             dayDataJson.add(rate)
@@ -549,7 +556,8 @@ object CalculateHisData {
       //      otherDayResult.foreach(println)
 
       // 查询分项小时表一天的数据
-      val subOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, allTime.currentDayTime, allTime.nextDayTime)
+      val subOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+      log.info(s"计算分项表天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${subOneDayData.length}")
       //      println("查询到的分项表一天的小时数据")
       //      subOneDayData.foreach(println)
       val subDayResult = sc.parallelize(subOneDayData)
@@ -572,7 +580,7 @@ object CalculateHisData {
             dayDataJson.set(4, 0d)
             dayDataJson.set(5, 0d)
             dayDataJson.set(6, 0d)
-            dayDataJson.set(7, allTime.currentDayTime)
+            dayDataJson.set(7, allTime.lastDayTime)
             for (json <- hourData) {
               for (i <- 1 to 5) {
                 val dataValue = json.getDouble(i)
@@ -594,10 +602,10 @@ object CalculateHisData {
       // 所有天表数据计算完成
       
       // 计算月数据
-      if(allTime.nextHourTime == allTime.nextMonthTime || allTime.nextHourTime == getyy_MM_ddTime(errorEndTime)){
-        log.info(s"计算月表本次查询范围${allTime.currentMonthTime}~${allTime.nextMonthTime}")
+      if(allTime.currentHourTime == allTime.currentMonthTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
       // 查询电天表一个月的数据
-      val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.currentMonthTime, allTime.nextMonthTime)
+      val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.lastMonthTime, allTime.currentMonthTime)
+		  log.info(s"计算电月表本次查询范围${allTime.lastMonthTime}~${allTime.currentMonthTime},查询数据量为${elecOneMonthData.length}")
       //      println("查询到的电一个月的数据")
       //      elecOneMonthData.foreach(println)
       val elecMonthResult = sc.parallelize(elecOneMonthData)
@@ -625,16 +633,16 @@ object CalculateHisData {
               typeCode = json.getString(6)
             }
             // 记录月数据
-            val dayDataJson = new JSONArray
-            dayDataJson.add(itemCode)
-            dayDataJson.add(allTime.currentDayTime)
-            dayDataJson.add(value)
-            dayDataJson.add(realValue)
-            dayDataJson.add(rate)
-            dayDataJson.add(error)
-            dayDataJson.add(typeCode)
+            val monthDataJson = new JSONArray
+            monthDataJson.add(itemCode)
+            monthDataJson.add(allTime.lastMonthTime)
+            monthDataJson.add(value)
+            monthDataJson.add(realValue)
+            monthDataJson.add(rate)
+            monthDataJson.add(error)
+            monthDataJson.add(typeCode)
             // 月数据放入mapPartition
-            resultPart.append(dayDataJson)
+            resultPart.append(monthDataJson)
           }
           resultPart.toIterator
         }).collect()
@@ -644,7 +652,8 @@ object CalculateHisData {
       //      elecMonthResult.foreach(println)
 
       // 查询other天表一个月的数据
-      val otherOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_day_table, allTime.currentMonthTime, allTime.nextMonthTime)
+      val otherOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_day_table, allTime.lastMonthTime, allTime.currentMonthTime)
+      log.info(s"计算other月表本次查询范围${allTime.lastMonthTime}~${allTime.currentMonthTime},查询数据量为${otherOneMonthData.length}")
       //      println("查询到的一个月的other数据")
       //      otherOneMonthData.foreach(println)
       val otherMonthResult = sc.parallelize(otherOneMonthData)
@@ -672,16 +681,16 @@ object CalculateHisData {
               typeCode = json.getString(6)
             }
             // 记录月数据
-            val dayDataJson = new JSONArray
-            dayDataJson.add(itemCode)
-            dayDataJson.add(allTime.currentDayTime)
-            dayDataJson.add(value)
-            dayDataJson.add(realValue)
-            dayDataJson.add(rate)
-            dayDataJson.add(error)
-            dayDataJson.add(typeCode)
+            val monthDataJson = new JSONArray
+            monthDataJson.add(itemCode)
+            monthDataJson.add(allTime.lastMonthTime)
+            monthDataJson.add(value)
+            monthDataJson.add(realValue)
+            monthDataJson.add(rate)
+            monthDataJson.add(error)
+            monthDataJson.add(typeCode)
             // 月数据放入mapPartition
-            resultPart.append(dayDataJson)
+            resultPart.append(monthDataJson)
           }
           resultPart.toIterator
         }).collect()
