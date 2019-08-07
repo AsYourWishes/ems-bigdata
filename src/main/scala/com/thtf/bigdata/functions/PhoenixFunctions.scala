@@ -102,7 +102,8 @@ object PhoenixFunctions {
                           |  b."code",
                           |  c."code",
                           |  c."data_type",
-                          |  c."max_value"
+                          |  c."max_value"，
+                      		|  c."coefficient"
                           |FROM
                           |  ${INFO_NAMESPACE}."tbl_building" a,
                           |  ${INFO_NAMESPACE}."tbl_collector" b,
@@ -122,13 +123,17 @@ object PhoenixFunctions {
     } catch {
       case t: Throwable => t.printStackTrace()
     }
-    val maxValueMap = new HashMap[(String,String),Double]()
+    val maxValueMap = new HashMap[(String,String),(Double,Double)]()
     while (resultSet.next()) {
       var maxValue = resultSet.getDouble(5)
-      if(resultSet.getDouble(5) == null){
+      if(maxValue == null || maxValue < 0){
         maxValue = 10000
 		  }
-      maxValueMap.put((s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4)), maxValue)
+      var coefficient = resultSet.getDouble(6)
+      if(coefficient == null || coefficient < 0){
+        coefficient = 1
+		  }
+      maxValueMap.put((s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4)), (maxValue,coefficient))
     }
     maxValueMap
   }
