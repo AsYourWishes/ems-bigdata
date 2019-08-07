@@ -21,6 +21,7 @@ case class HisDataEntity(
  * 时间值
  */
 case class DateTimeEntity(
+	val currentMinuteTime: String,
   val currentHourTime: String,
   val lastHourTime: String,
   val lastTwoHourTime: String,

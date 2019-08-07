@@ -33,8 +33,10 @@ object SparkFunctions {
       if (time.length() == 14) calendar.setTime(new SimpleDateFormat(HISDATA_DATAFORMAT).parse(time))
       if (time.length() == 19) calendar.setTime(new SimpleDateFormat(ENERGY_DATAFORMAT).parse(time))
     }
-    // 将时间的分钟和秒置为0
+    // 将时间秒置为0
     calendar.add(Calendar.SECOND, -calendar.get(Calendar.SECOND))
+    val currentMinuteTime = simpleDateFormat.format(calendar.getTime)
+    // 将时间的分钟置为0
     calendar.add(Calendar.MINUTE, -calendar.get(Calendar.MINUTE))
     val currentHourTime = simpleDateFormat.format(calendar.getTime)
     calendar.add(Calendar.HOUR_OF_DAY, -2)
@@ -60,7 +62,7 @@ object SparkFunctions {
     calendar.add(Calendar.MONTH, -2)
     val lastMonthTime = simpleDateFormat.format(calendar.getTime)
     calendar.add(Calendar.MONTH, 1)
-    date.apply(currentHourTime, lastHourTime, lastTwoHourTime, nextHourTime, currentDayTime, lastDayTime, nextDayTime, currentMonthTime, lastMonthTime, nextMonthTime)
+    date.apply(currentMinuteTime,currentHourTime, lastHourTime, lastTwoHourTime, nextHourTime, currentDayTime, lastDayTime, nextDayTime, currentMonthTime, lastMonthTime, nextMonthTime)
   }
 
   /**
@@ -135,6 +137,7 @@ object SparkFunctions {
   
   /**
    * 检查传入的字符串是否可以转换为Double类型
+   * 只有DS_HisData表有用(只有phoenix中以varchar形式存的数值才需要检验)
    */
   def checkStringNumber(num: String) = {
     var checkout = true
@@ -153,10 +156,46 @@ object SparkFunctions {
     (BigDecimal(bigger) - BigDecimal(smaller)).toDouble
   }
   /**
+   * 计算两个字符串类型的数值的差值
+   */
+  def getSubtraction(smaller: Double,bigger: Double) = {
+		  (BigDecimal(bigger) - BigDecimal(smaller)).toDouble
+  }
+  /**
+   * 计算两个字符串类型的数值的差值
+   */
+  def getSubtraction(smaller: Integer,bigger: Integer) = {
+		  (BigDecimal(bigger) - BigDecimal(smaller)).toDouble
+  }
+  /**
    * 计算两个字符串类型的数值的和
    */
   def getSum(smaller: String,bigger: String) = {
 		  (BigDecimal(bigger) + BigDecimal(smaller)).toDouble
+  }
+  /**
+   * 计算两个字符串类型的数值的和
+   */
+  def getSum(smaller: Double,bigger: Double) = {
+		  (BigDecimal(bigger) + BigDecimal(smaller)).toDouble
+  }
+  /**
+   * 计算两个字符串类型的数值的和
+   */
+  def getSum(smaller: Integer,bigger: Integer) = {
+		  (BigDecimal(bigger) + BigDecimal(smaller)).toDouble
+  }
+  /**
+   * 计算两个字符串类型的数值的乘积
+   */
+  def getProduct(smaller: String,bigger: String) = {
+		  (BigDecimal(bigger) * BigDecimal(smaller)).toDouble
+  }
+  /**
+   * 计算两个Double类型的数值的乘积
+   */
+  def getProduct(smaller: Double,bigger: Double) = {
+		  (BigDecimal(bigger) * BigDecimal(smaller)).toDouble
   }
   
   /**
