@@ -182,9 +182,15 @@ object CalculateHisData {
                 	  if(getTimestamp(nextJson.getString(9)) - getTimestamp(lastCurrentInfo._1) == 3600000){
                     	// 记算小时数据
                     	val currentInfoValue = lastCurrentInfo._2
-                			val nextValue = nextJson.getString(7)
-                			var maxValue = bcMaxValue.value.getOrElse((itemName, typeId), 10000d)
-                			var energyValue = SparkFunctions.getSubtraction(currentInfoValue, nextValue.toDouble)
+                			var maxValueAndcoefficient = bcMaxValue.value.getOrElse((itemName, typeId), null)
+                			var maxValue: Double = 10000
+                			var coefficient: Double = 1
+                			if(maxValueAndcoefficient != null){
+                			  maxValue = maxValueAndcoefficient._1
+                			  coefficient = maxValueAndcoefficient._2
+                			}
+                			val nextValue = SparkFunctions.getProduct(nextJson.getString(7),coefficient.toString())
+                			var energyValue = SparkFunctions.getSubtraction(currentInfoValue, nextValue)
                 			var state = if (energyValue < maxValue) "0" else "2"
                 				if (energyValue < 0) {
                 					energyValue = 0
