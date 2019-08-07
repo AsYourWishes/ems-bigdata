@@ -228,7 +228,7 @@ public class PhoenixHelper {
 	 * @throws InterruptedException 
 	 */
 	public static Connection getConnection(String nameSpace) throws SQLException, InterruptedException {
-		long l = System.currentTimeMillis();
+//		long l = System.currentTimeMillis();
 		Properties props = new Properties();
 		props.setProperty("phoenix.functions.allowUserDefinedFunctions", "true");
 		props.setProperty("phoenix.schema.isNamespaceMappingEnabled", "true");
@@ -242,7 +242,7 @@ public class PhoenixHelper {
 			try {
 				connection = DriverManager.getConnection(PropertiesUtils.getPropertiesByKey("phoenix.url"), props);
 				connection.setAutoCommit(false);
-				System.out.println("链接时间：" + (System.currentTimeMillis() - l));
+//				System.out.println("链接时间：" + (System.currentTimeMillis() - l));
 				attemptCount = Integer.parseInt(PropertiesUtils.getPropertiesByKey("phoenix.attempt.count"));
 			} catch (Exception e) {
 				Thread.sleep(attemptTime * 1000);
