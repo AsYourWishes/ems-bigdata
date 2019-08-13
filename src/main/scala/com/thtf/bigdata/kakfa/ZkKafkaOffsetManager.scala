@@ -10,7 +10,7 @@ object ZkKafkaOffsetManager {
 
 }
 
-class ZkKafkaOffsetManager(zkUrl: String) {
+class ZkKafkaOffsetManager(zkUrl: String) extends Serializable{
   //  private val logger = LoggerFactory.getLogger(classOf[ZkKafkaOffsetManager])
   private val logger = LoggerFactory.getLogger("org")
 
@@ -84,4 +84,31 @@ class ZkKafkaOffsetManager(zkUrl: String) {
       "Save flag - topic={}, group={}, path={}, flag={}",
       Seq[AnyRef](topics(0), groupId, path, flag.toString()))
   }
+  
+  // 读取上次处理历史数据的时间记录
+  def readBeginTime(topics: Seq[String], groupId: String): String = {
+    val groupTopicDirs = new ZKGroupTopicDirs(groupId, topics(0))
+    val path = groupTopicDirs.consumerOffsetDir + "/" + "time"
+    try {
+      val data = zkUtils.readData(path)
+      logger.info("The path of the flag on zookeeper is :" + path)
+      data._1
+    } catch {
+      case ex: Exception =>
+        null
+    }
+  }
+  // 记录本次处理历史数据的时间
+  def saveBeginTime(topics: Seq[String], groupId: String, time: String): Unit = {
+    val groupTopicDirs = new ZKGroupTopicDirs(groupId, topics(0))
+    val path = groupTopicDirs.consumerOffsetDir + "/" + "time"
+    zkUtils.updatePersistentPath(path, time)
+    logger.info(
+      "Save flag - topic={}, group={}, path={}, flag={}",
+      Seq[AnyRef](topics(0), groupId, path, time))
+  }
+  
+  
+  
+  
 }

@@ -160,16 +160,25 @@ object CalculateHisData {
               if (!valueJsonArray.isEmpty) {
                 // 获取item_name上一次数据记录
                 var lastCurrentInfo = bcCurrentInfo.value.getOrElse((itemName,typeId),null)
+                // 获取item信息
+                var maxValueAndcoefficient = bcMaxValue.value.getOrElse((itemName, typeId), null)
+          			var maxValue: Double = 10000
+          			var coefficient: Double = 1
+          			if(maxValueAndcoefficient != null){
+          			  maxValue = maxValueAndcoefficient._1
+          			  coefficient = maxValueAndcoefficient._2
+          			}
             		val headJson = valueJsonArray.head
             		val headJsonTime = headJson.getString(9)
             		// 记录current_info数据
                 val currentInfoJson = new JSONArray
                 // 如果没有上一次的记录，或者本次第一条数据时间超过上次一小时，则记录本次查询第一条数据，不计算
                 if(lastCurrentInfo == null || getTimestamp(headJsonTime) - getTimestamp(lastCurrentInfo._1) > 3600000){
-                  lastCurrentInfo = (getyy_MM_ddTime(headJsonTime),headJson.getString(7).toDouble)
+            			val headValue = SparkFunctions.getProduct(headJson.getString(7),coefficient.toString())
+                  lastCurrentInfo = (getyy_MM_ddTime(headJsonTime),headValue)
                   currentInfoJson.add(itemName)
                   currentInfoJson.add(getyy_MM_ddTime(headJsonTime))
-                  currentInfoJson.add(headJson.getString(7))
+                  currentInfoJson.add(headValue)
                   currentInfoJson.add(headJson.getString(6))
                   currentInfoJson.add(typeId)
                   // 添加current_info数据到累加器中
@@ -182,13 +191,6 @@ object CalculateHisData {
                 	  if(getTimestamp(nextJson.getString(9)) - getTimestamp(lastCurrentInfo._1) == 3600000){
                     	// 记算小时数据
                     	val currentInfoValue = lastCurrentInfo._2
-                			var maxValueAndcoefficient = bcMaxValue.value.getOrElse((itemName, typeId), null)
-                			var maxValue: Double = 10000
-                			var coefficient: Double = 1
-                			if(maxValueAndcoefficient != null){
-                			  maxValue = maxValueAndcoefficient._1
-                			  coefficient = maxValueAndcoefficient._2
-                			}
                 			val nextValue = SparkFunctions.getProduct(nextJson.getString(7),coefficient.toString())
                 			var energyValue = SparkFunctions.getSubtraction(currentInfoValue, nextValue)
                 			var state = if (energyValue < maxValue) "0" else "2"
@@ -262,13 +264,13 @@ object CalculateHisData {
         currentInfoAccu.reset()
         // 写入data_access表
         PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
-        log.info("更新data_access表")
+        log.info("写入data_access表")
         //        dataAccessAccu.value.foreach(println)
         // 清空累加器
         dataAccessAccu.reset()
 
         // 计算分项小时表数据(在计算虚拟表之前)
-        val elecHourData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastHourTime)
+        val elecHourData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastHourTime,null,null)
         log.info(s"计算分项小时表本次查询时间为：${allTime.lastHourTime},查询数据量为${elecHourData.length}")
         //        println("查询到的小时数据")
         //        elecHourData.foreach(println)
@@ -327,6 +329,9 @@ object CalculateHisData {
           subHourData)
         log.info("写入分项小时数据")
         //        subHourData.foreach(println)
+        // 删除data_access表中type为2的数据
+        PhoenixFunctions.deleteDataAccess(allTime.lastHourTime, "2", "=")
+        log.info("删除data_access表中type为2的数据")
 
         // 计算虚拟表数据
         // 两个小时之前
@@ -352,7 +357,7 @@ object CalculateHisData {
               json.getString(0) == buildingId
             })
             virtualItemList.foreach(itemJson => {
-              val typeCode = itemJson.getString(5)
+              val typeCode = itemJson.getString(5) // 01-1、02-1、03-1
               val hourTableName = if (typeCode == "01-1") PhoenixFunctions.elec_hour_table else PhoenixFunctions.other_hour_table
               var virtualLogic = itemJson.getString(3)
               val ids = new ArrayBuffer[String]
@@ -450,15 +455,15 @@ object CalculateHisData {
           }))
         log.info("写入虚拟表数据-other")
         //        virtualHourData.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
-        // 更新data_access表
-        PhoenixFunctions.updateDataAccess(calculateFromTime.toString(), -1)
-        log.info("更新data_access表")
+        // 删除data_access表type为0的数据
+        PhoenixFunctions.deleteDataAccess(allTime.currentHourTime, "0")
+        log.info("删除data_access表中type为0的数据")
       }
       
       // 计算天数据
       if(allTime.currentHourTime == allTime.currentDayTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
       // 查询电小时表一天的数据
-      val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+      val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastDayTime, allTime.currentDayTime,null)
 		  log.info(s"计算电天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${elecOneDayData.length}")
       //      println("查询到的电表一天的小时数据")
       //      elecOneDayData.foreach(println)
@@ -510,7 +515,7 @@ object CalculateHisData {
       //      elecDayResult.foreach(println)
 
       // 查询other小时表一天的数据
-      val otherOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+      val otherOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_hour_table, allTime.lastDayTime, allTime.currentDayTime,null)
       log.info(s"计算other天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${otherOneDayData.length}")
       //      println("查询到的other表一天的小时数据")
       //      otherOneDayData.foreach(println)
@@ -562,7 +567,7 @@ object CalculateHisData {
       //      otherDayResult.foreach(println)
 
       // 查询分项小时表一天的数据
-      val subOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, allTime.lastDayTime, allTime.currentDayTime)
+      val subOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, allTime.lastDayTime, allTime.currentDayTime,null)
       log.info(s"计算分项表天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${subOneDayData.length}")
       //      println("查询到的分项表一天的小时数据")
       //      subOneDayData.foreach(println)
@@ -610,7 +615,7 @@ object CalculateHisData {
       // 计算月数据
       if(allTime.currentHourTime == allTime.currentMonthTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
       // 查询电天表一个月的数据
-      val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.lastMonthTime, allTime.currentMonthTime)
+      val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.lastMonthTime, allTime.currentMonthTime,null)
 		  log.info(s"计算电月表本次查询范围${allTime.lastMonthTime}~${allTime.currentMonthTime},查询数据量为${elecOneMonthData.length}")
       //      println("查询到的电一个月的数据")
       //      elecOneMonthData.foreach(println)
@@ -658,7 +663,7 @@ object CalculateHisData {
       //      elecMonthResult.foreach(println)
 
       // 查询other天表一个月的数据
-      val otherOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_day_table, allTime.lastMonthTime, allTime.currentMonthTime)
+      val otherOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.other_day_table, allTime.lastMonthTime, allTime.currentMonthTime,null)
       log.info(s"计算other月表本次查询范围${allTime.lastMonthTime}~${allTime.currentMonthTime},查询数据量为${otherOneMonthData.length}")
       //      println("查询到的一个月的other数据")
       //      otherOneMonthData.foreach(println)

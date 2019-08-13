@@ -68,6 +68,7 @@ object MyKafkaTest {
 
     val accu = new LongAccumulator
     ssc.sparkContext.register(accu)
+    ssc.sparkContext.setLogLevel("ERROR")
 
     inputDStream.foreachRDD(rdd => {
         rdd.map(consumerRecord => {
@@ -83,6 +84,7 @@ object MyKafkaTest {
           (consumerRecord.key(),offset)
         }).foreach(consumerRecord => {
             println(consumerRecord)
+            println(accu.value)
         })
       accu.add(1)
       println(accu.value)

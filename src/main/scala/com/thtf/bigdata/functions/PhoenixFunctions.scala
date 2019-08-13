@@ -102,7 +102,7 @@ object PhoenixFunctions {
                           |  b."code",
                           |  c."code",
                           |  c."data_type",
-                          |  c."max_value"，
+                          |  c."max_value",
                       		|  c."coefficient"
                           |FROM
                           |  ${INFO_NAMESPACE}."tbl_building" a,
@@ -175,10 +175,10 @@ object PhoenixFunctions {
                               |  "real_value",
                           		|  "data_type" 
                               |FROM
-                              |  ${INFO_NAMESPACE}."${current_info_table}" """.stripMargin
+                              |  ${DATA_NAMESPACE}."${current_info_table}" """.stripMargin
     var resultSet: ResultSet = null
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
       val pres = conn.prepareStatement(CURRENT_INFO_TABLE)
       resultSet = pres.executeQuery()
     } catch {
@@ -194,10 +194,10 @@ object PhoenixFunctions {
    * 更新tbl_item_current_info表
    */
   def updateCurrentInfo(jsonArray: ArrayBuffer[JSONArray]){
-    val CURRENT_INFO_COUNT_SQL = s"""SELECT MAX("id") FROM ${INFO_NAMESPACE}."tbl_item_current_info" """.stripMargin
+    val CURRENT_INFO_COUNT_SQL = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."tbl_item_current_info" """.stripMargin
     var resultSet: ResultSet = null
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
       val pres = conn.prepareStatement(CURRENT_INFO_COUNT_SQL)
       resultSet = pres.executeQuery()
     } catch {
@@ -209,11 +209,11 @@ object PhoenixFunctions {
     	  count = resultSet.getLong(1)
       }
     }
-    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(INFO_NAMESPACE, current_info_table, null, null))
+    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, current_info_table, null, null))
       .map(json => {
         ((json.getString(1),json.getString(5)),json.getLong(0))
       }).toMap
-    for(i <- 0 until jsonArray.length){
+    for(i <- 0 until jsonArray.distinct.length){
       var id = resultMap.getOrElse((jsonArray(i).getString(0),jsonArray(i).getString(4)), null)
       if(id == null){
         count = count + 1
@@ -221,17 +221,17 @@ object PhoenixFunctions {
       }
       jsonArray(i).add(0, id)
     }
-    phoenixWriteHbase(INFO_NAMESPACE, current_info_table, jsonArray.toArray)
+    phoenixWriteHbase(DATA_NAMESPACE, current_info_table, jsonArray.toArray)
   }
   
   /**
    * 写入data_access表
    */
   def insertDataAccess(jsonArray: ArrayBuffer[JSONArray]){
-    val INSERT_DATA_ACCESS = s"""SELECT MAX("id") FROM ${INFO_NAMESPACE}."data_access" """.stripMargin
+    val INSERT_DATA_ACCESS = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."data_access" """.stripMargin
     var resultSet: ResultSet = null
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
       val pres = conn.prepareStatement(INSERT_DATA_ACCESS)
       resultSet = pres.executeQuery()
     } catch {
@@ -249,14 +249,14 @@ object PhoenixFunctions {
       count = count + 1
       distinctJsonArray(i).add(0, count.toString())
     }
-    phoenixWriteHbase(INFO_NAMESPACE, data_access_table, distinctJsonArray.toArray)
+    phoenixWriteHbase(DATA_NAMESPACE, data_access_table, distinctJsonArray.toArray)
   }
   
   /**
    * 获取data_access表
    * @param time:时间值
    */
-  def getDataAccessList(time: String) = {
+  def getDataAccessList(time: String,typeNum:String = "0") = {
     val timestamp = time.replaceAll("\\D", "").take(10)
     // data_access 表
     val DATA_ACCESS_SQL = s"""SELECT
@@ -264,16 +264,16 @@ object PhoenixFunctions {
                               |  "collector_code",
                               |  "timestamp" 
                               |FROM
-                              |  ${INFO_NAMESPACE}."data_access"
+                              |  ${DATA_NAMESPACE}."data_access"
                               |WHERE
-                              |  "type"=0
+                              |  "type"=$typeNum
                               |AND
                               |  "timestamp" <= '${timestamp}'
                               |ORDER BY
                               |  "timestamp" """.stripMargin
     var resultSet: ResultSet = null
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
       val pres = conn.prepareStatement(DATA_ACCESS_SQL)
       resultSet = pres.executeQuery()
 
@@ -283,31 +283,57 @@ object PhoenixFunctions {
     // 对获取到的data_access表数据去重
     SparkFunctions.result2JsonArr(resultSet).distinct
   }
+//  /**
+//   * 更新data_access数据,将处理过的数据type置为1
+//   */
+//  def updateDataAccess(time: String, maxDataAccessId: Long, typeNum:String = "0") = {
+//    val timestamp = time.replaceAll("\\D", "").take(10)
+//    // 更新data_access表
+//    var UPDATE_DATA_ACCESS = s"""UPSERT INTO
+//                                |  ${INFO_NAMESPACE}."data_access" ("id","type")
+//                                |SELECT
+//                            		|  "id",1
+//                                |FROM
+//                                |  ${INFO_NAMESPACE}."data_access"
+//                                |WHERE
+//                                |  "timestamp" <= '${timestamp}'
+//                                |AND
+//                                |  "type"=$typeNum """.stripMargin
+//    if(maxDataAccessId != -1) UPDATE_DATA_ACCESS = UPDATE_DATA_ACCESS + s""" AND "id" <= ${maxDataAccessId} """
+//    var result = 0
+//    try {
+//      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+//      conn.setAutoCommit(true)
+//      val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
+//      result = pres.executeUpdate()
+//    } catch {
+//      case t: Throwable => t.printStackTrace()
+//    }
+//    result
+//  }
   /**
-   * 更新data_access数据,将处理过的数据type置为1
+   * 删除data_access中的数据
    */
-  def updateDataAccess(time: String, maxDataAccessId: Long) = {
-    val timestamp = time.replaceAll("\\D", "").take(10)
-    // 更新data_access表
-    var UPDATE_DATA_ACCESS = s"""UPSERT INTO
-                                |  ${INFO_NAMESPACE}."data_access" ("id","type")
-                                |SELECT
-                            		|  "id",1
-                                |FROM
-                                |  ${INFO_NAMESPACE}."data_access"
-                                |WHERE
-                                |  "timestamp" <= '${timestamp}' """.stripMargin
-    if(maxDataAccessId != -1) UPDATE_DATA_ACCESS = UPDATE_DATA_ACCESS + s""" AND "id" <= ${maxDataAccessId} """
-    var result = 0
-    try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-      conn.setAutoCommit(true)
-      val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
-      result = pres.executeUpdate()
-    } catch {
-      case t: Throwable => t.printStackTrace()
-    }
-    result
+  def deleteDataAccess(time: String, typeNum:String, condition: String = "<=") = {
+		  val timestamp = time.replaceAll("\\D", "").take(10)
+				  // 更新data_access表
+				  var UPDATE_DATA_ACCESS = s"""DELETE
+                                		  |FROM
+                                		  |  ${DATA_NAMESPACE}."data_access"
+                                		  |WHERE
+                                		  |  "timestamp" $condition '${timestamp}'
+                                		  |AND
+                                		  |  "type"=$typeNum """.stripMargin
+		  var result = 0
+				  try {
+					  val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+							  conn.setAutoCommit(true)
+							  val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
+							  result = pres.executeUpdate()
+				  } catch {
+				  case t: Throwable => t.printStackTrace()
+				  }
+		  result
   }
   
   /**
@@ -420,13 +446,19 @@ object PhoenixFunctions {
   /**
    * 获取统计表某段时间的数据
    */
-  def getEnergyDataByTime(tablename:String,dateTime: String,endTime:String = null) = {
+  def getEnergyDataByTime(tablename:String,dateTime: String,endTime:String,codeName: String) = {
     var timeCol:String = null
     if(tablename == subentry_hour_table || tablename == subentry_day_table){
       timeCol = "data_time"
     }else {
       timeCol = "date_time"
     }
+    var code:String = null
+	  if(tablename == subentry_hour_table || tablename == subentry_day_table){
+		  code = "building_code"
+	  }else {
+		  code = "item_name"
+	  }
     var GET_ENERGY_DATA = ""
     if (tablename == elec_day_table || tablename == other_day_table) {
       GET_ENERGY_DATA = GET_ENERGY_DATA + s"""|SELECT
@@ -470,6 +502,10 @@ object PhoenixFunctions {
     }else {
 		  GET_ENERGY_DATA = GET_ENERGY_DATA + s""" WHERE "${timeCol}" >= TO_TIMESTAMP('${dateTime}') AND "${timeCol}" < TO_TIMESTAMP('${endTime}') """
     }
+    if(codeName != null){
+    	GET_ENERGY_DATA = GET_ENERGY_DATA + s""" AND "${code}" = '${codeName}' """
+    }
+//    println(GET_ENERGY_DATA)
   	var resultSet: ResultSet = null
     try {
       val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
@@ -480,6 +516,36 @@ object PhoenixFunctions {
     }
     SparkFunctions.result2JsonArr(resultSet)
   }
+  
+  /**
+   * 根据记录中的building_code和collector_code以及时间，获取小时表中对应数据
+   */
+  def getSubHourData(code:String,time:String) = {
+    val GET_SUB_HOUR_DATA = s"""|SELECT
+                                |  "item_name",
+                                |  TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss'),
+                                |  "value",
+                                |  "real_value",
+                                |  "rate",
+                                |  "error",
+                                |  "type"
+                                |FROM
+                                |  ${DATA_NAMESPACE}."${elec_hour_table}"
+                                |WHERE
+                                |  "date_time" = TO_TIMESTAMP('${time}')
+                                |AND
+                                |  "item_name" LIKE '${code}%' """.stripMargin
+    var resultSet: ResultSet = null
+    try {
+      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      val pres = conn.prepareStatement(GET_SUB_HOUR_DATA)
+      resultSet = pres.executeQuery()
+    } catch {
+      case t: Throwable => t.printStackTrace()
+    }
+    SparkFunctions.result2JsonArr(resultSet)
+  }
+  
   
   
   

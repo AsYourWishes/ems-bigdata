@@ -28,6 +28,7 @@ object PropertiesConstant {
   val SPARK_SLIDEDURATION = "spark.slideDuration"
   val SPARK_CHECKINTERVALMILLIS = "spark.checkIntervalMillis"
   val SPARK_SAVEERRORDATA = "spark.saveErrorData"
+  val SPARK_CALCULATEHISDATA_BEGINTIME = "spark.calculateHisData.beginTime"
   // error data time
   val SPARK_ERRORDATA_FROMTIME = "spark.errorData.fromTime"
   val SPARK_ERRORDATA_ENDTIME = "spark.errorData.endTime"

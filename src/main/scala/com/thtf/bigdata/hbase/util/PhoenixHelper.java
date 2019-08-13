@@ -32,7 +32,7 @@ public class PhoenixHelper {
 	 * @param dataType:数据类型list
 	 * @return
 	 */
-	public static boolean upsert(Connection connection, String tableName, List<Object> data, List<String> dataType) {
+	public static boolean upsert(Connection connection, String tableName, JSONArray data, List<String> dataType) {
 		// 拼sql语句
 		String sql = getSql(tableName, dataType);
 		// 内部处理异常
