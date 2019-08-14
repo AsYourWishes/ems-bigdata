@@ -149,6 +149,7 @@ object SaveKafkaRecords {
         isRunning = false
       }
       if(isRunning && offsetManager.readFlag(Seq(topicsSet.head), groupId)){
+        log.info("检测到Flag为true，将要停止spark任务！")
         // Flag = true 则停掉任务
         ssc.stop(true, true)
         // 停止scala程序

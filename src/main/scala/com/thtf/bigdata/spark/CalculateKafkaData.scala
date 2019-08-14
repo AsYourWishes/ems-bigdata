@@ -24,6 +24,7 @@ import java.util.regex.Pattern
 import com.thtf.bigdata.hbase.util.PhoenixHelper
 import com.thtf.bigdata.functions.CleaningModule
 import com.thtf.bigdata.util.FormulaUtil
+import org.apache.spark.TaskContext
 
 /**
  * 从kafka中拉取数据，进行各项要求的计算，并存储到对应的统计表中。
@@ -316,6 +317,7 @@ object CalculateKafkaData {
 
       // 计算电分项数据
       hourResultRdd.groupBy(_.getString(0).split("_").head).foreachPartition(partIt => {
+    	  var numSub = 0
         while (partIt.hasNext) {
           val keyValues = partIt.next()
           val buildingCode = keyValues._1
@@ -402,6 +404,7 @@ object CalculateKafkaData {
                     PhoenixFunctions.subentry_hour_table,
                     currentSubHourJson,
                     CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_hour_table))
+                    log.info(s"Partition-${TaskContext.getPartitionId()}:更新分项数据到小时表成功，数据为${currentSubHourJson}")
                 } catch {
                   case t: Throwable =>
                     t.printStackTrace() // TODO: handle error
@@ -414,18 +417,23 @@ object CalculateKafkaData {
                     PhoenixFunctions.subentry_day_table,
                     currentSubDayJson,
                     CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_day_table))
+                    log.info(s"Partition-${TaskContext.getPartitionId()}:更新分项数据到天表成功，数据为${currentSubDayJson}")
                 } catch {
                   case t: Throwable =>
                     t.printStackTrace() // TODO: handle error
                     log.error(s"写入表${PhoenixFunctions.subentry_day_table}失败！出错数据为：$currentSubDayJson");
                 }
+                numSub = numSub + 1
               }
             })
           }
         }
+    	  log.info(s"Partition-${TaskContext.getPartitionId()}:更新分项表数据成功，更新数据${numSub}条")
       })
+      log.info("更新分项表完成")
       // 计算对应的天表和月表数据
       hourResultRdd.groupBy(_.getString(0)).foreachPartition(partIt => {
+    	  var numDayAndMonth = 0
         while (partIt.hasNext) {
           val keyValues = partIt.next()
           val itemName = keyValues._1
@@ -479,7 +487,7 @@ object CalculateKafkaData {
               if (lastMonthData.isEmpty) {
                 currentMonthData = new JSONArray
                 currentMonthData.add(itemName)
-                currentMonthData.add(time.currentDayTime)
+                currentMonthData.add(time.currentMonthTime)
                 currentMonthData.add(dataValue)
                 currentMonthData.add(realValue)
                 currentMonthData.add(rate)
@@ -498,6 +506,7 @@ object CalculateKafkaData {
                   dayTable,
                   currentDayData,
                   CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + dayTable))
+                  log.info(s"Partition-${TaskContext.getPartitionId()}:更新天表成功，数据为${currentDayData}")
               } catch {
                 case t: Throwable =>
                   t.printStackTrace() // TODO: handle error
@@ -510,15 +519,19 @@ object CalculateKafkaData {
                   monthTable,
                   currentMonthData,
                   CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + monthTable))
+                  log.info(s"Partition-${TaskContext.getPartitionId()}:更新月表成功，数据为${currentMonthData}")
               } catch {
                 case t: Throwable =>
                   t.printStackTrace() // TODO: handle error
                   log.error(s"写入表${monthTable}失败！出错数据为：$currentMonthData");
               }
+              numDayAndMonth = numDayAndMonth + 1
             })
           }
         }
+    	  log.info(s"Partition-${TaskContext.getPartitionId()}:更新天表和月表成功，更新数据${numDayAndMonth}条")
       })
+      log.info("更新天表和月表完成")
 
       // 更新tbl_item_current_info表
       PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
@@ -537,6 +550,7 @@ object CalculateKafkaData {
           .filter(json => SparkFunctions.checkStringTime(json.getString(2)))
           .groupBy(json => json.getString(0))
           .foreachPartition(partIt => {
+            var numThirdSub = 0
             while (partIt.hasNext) {
               val keyValues = partIt.next()
               val buildingCode = keyValues._1
@@ -557,12 +571,12 @@ object CalculateKafkaData {
                   var value_d = 0d
                   var rate = 0d
                   codeHourData.foreach(hourJson => {
-                    val itemName = json.getString(0)
+                    val itemName = hourJson.getString(0)
                     var subCode = bcSubentryCode.value.getOrElse(itemName, null)
                     if (subCode != null) {
                       subCode = subCode.trim().take(3)
-                      val jsonTime = json.getString(1)
-                      val dataValue = json.getDouble(2)
+                      val jsonTime = hourJson.getString(1)
+                      val dataValue = hourJson.getDouble(2)
                       if (subCode == "010") value = SparkFunctions.getSum(value, dataValue)
                       if (subCode == "01A") value_a = SparkFunctions.getSum(value_a, dataValue)
                       if (subCode == "01B") value_b = SparkFunctions.getSum(value_b, dataValue)
@@ -619,6 +633,7 @@ object CalculateKafkaData {
                       PhoenixFunctions.subentry_hour_table,
                       currentSubHourJson,
                       CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_hour_table))
+                    log.info(s"Partition-${TaskContext.getPartitionId()}:更新第三方分项小时表数据成功，数据为${currentSubHourJson}")
                   } catch {
                     case t: Throwable =>
                       t.printStackTrace() // TODO: handle error
@@ -631,15 +646,19 @@ object CalculateKafkaData {
                       PhoenixFunctions.subentry_day_table,
                       currentSubDayJson,
                       CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_day_table))
+                    log.info(s"Partition-${TaskContext.getPartitionId()}:更新第三方分项数据到天表成功，数据为${currentSubDayJson}")
                   } catch {
                     case t: Throwable =>
                       t.printStackTrace() // TODO: handle error
                       log.error(s"写入表${PhoenixFunctions.subentry_day_table}失败！出错数据为：$currentSubDayJson");
                   }
+                 numThirdSub = numThirdSub + 1
                 }
               })
             }
+            log.info(s"Partition-${TaskContext.getPartitionId()}:更新第三方分项数据到小时表和天表成功，更新数据${numThirdSub}条")
           })
+        log.info("计算第三方插入数据到分项表完成")
         // 删除data_access表中type为2的数据
         PhoenixFunctions.deleteDataAccess(allTime.currentHourTime, "2")
         log.info(s"删除data_access表中type为2,${allTime.currentHourTime}之前的数据")
@@ -769,11 +788,13 @@ object CalculateKafkaData {
                   hourTableName,
                   hourMapJson,
                   CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + hourTableName))
+                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到小时表成功，数据为：${hourMapJson}")
               } catch {
                 case t: Throwable =>
                   t.printStackTrace() // TODO: handle error
                   log.error(s"写入表${hourTableName}失败！出错数据为：$hourMapJson");
               }
+              
               // 更新到天表和月表
               var changeValue = d_value
               var changeRealValue = d_realValue
@@ -811,11 +832,13 @@ object CalculateKafkaData {
                   dayTableName,
                   currentDayVirJson,
                   CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + dayTableName))
+                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到天表成功，数据为：${currentDayVirJson}")
               } catch {
                 case t: Throwable =>
                   t.printStackTrace() // TODO: handle error
                   log.error(s"写入表${dayTableName}失败！出错数据为：$currentDayVirJson");
               }
+              
               // 获取月表上次记录
               val lastVirMonthArray = PhoenixFunctions.getEnergyDataByTime(monthTableName, time.currentMonthTime, null, itemName)
               var currentMonthVirJson: JSONArray = null
@@ -841,6 +864,7 @@ object CalculateKafkaData {
                   monthTableName,
                   currentMonthVirJson,
                   CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + monthTableName))
+                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到月表成功，数据为：${currentMonthVirJson}")
               } catch {
                 case t: Throwable =>
                   t.printStackTrace() // TODO: handle error
@@ -849,7 +873,7 @@ object CalculateKafkaData {
             })
           }
         })
-
+        log.info("计算虚拟表数据完成")
         // 删除data_access表中type为0的数据
         PhoenixFunctions.deleteDataAccess(allTime.lastHourTime, "0")
         log.info(s"删除data_access表中type为0,${allTime.lastHourTime}之前的数据")
@@ -875,6 +899,7 @@ object CalculateKafkaData {
         isRunning = false
       }
       if (isRunning && offsetManager.readFlag(Seq(topicsSet.head), groupId)) {
+        log.info("检测到Flag为true，将要停止spark任务！")
         // Flag = true 则停掉任务
         ssc.stop(true, true)
         // 停止scala程序
