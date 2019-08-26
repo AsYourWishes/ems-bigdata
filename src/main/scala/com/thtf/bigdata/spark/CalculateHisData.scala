@@ -462,6 +462,12 @@ object CalculateHisData {
       
       // 计算天数据
       if(allTime.currentHourTime == allTime.currentDayTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
+        val flagTime = allTime.currentHourTime
+        var dayFlag = false
+        if(allTime.currentHourTime != allTime.currentDayTime && allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
+          allTime = SparkFunctions.getAllTime(allTime.nextDayTime)
+          dayFlag = true
+        }
       // 查询电小时表一天的数据
       val elecOneDayData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, allTime.lastDayTime, allTime.currentDayTime,null)
 		  log.info(s"计算电天表本次查询范围${allTime.lastDayTime}~${allTime.currentDayTime},查询数据量为${elecOneDayData.length}")
@@ -609,11 +615,20 @@ object CalculateHisData {
       PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.subentry_day_table, subDayResult)
       log.info("写入分项天表数据")
       //      subDayResult.foreach(println)
+      if(dayFlag){
+        allTime = SparkFunctions.getAllTime(flagTime)
+      }
       }
       // 所有天表数据计算完成
       
       // 计算月数据
       if(allTime.currentHourTime == allTime.currentMonthTime || allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
+        val flagTime = allTime.currentHourTime
+        var monthFlag = false
+        if(allTime.currentHourTime != allTime.currentMonthTime && allTime.currentHourTime == getyy_MM_ddTime(errorEndTime)){
+          allTime = SparkFunctions.getAllTime(allTime.nextMonthTime)
+          monthFlag = true
+        }
       // 查询电天表一个月的数据
       val elecOneMonthData = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_day_table, allTime.lastMonthTime, allTime.currentMonthTime,null)
 		  log.info(s"计算电月表本次查询范围${allTime.lastMonthTime}~${allTime.currentMonthTime},查询数据量为${elecOneMonthData.length}")
@@ -709,6 +724,9 @@ object CalculateHisData {
       PhoenixFunctions.phoenixWriteHbase(PhoenixFunctions.DATA_NAMESPACE, PhoenixFunctions.other_month_table, otherMonthResult)
       log.info("写入other月表数据")
       //      otherMonthResult.foreach(println)
+      if(monthFlag){
+        allTime = SparkFunctions.getAllTime(flagTime)
+      }
       }
       // 本小时数据处理完成，记录下个小时时间，程序失败从下个小时开始计算
       zkTimeRecordManager.saveBeginTime(Seq(topic), groupId, allTime.nextHourTime)

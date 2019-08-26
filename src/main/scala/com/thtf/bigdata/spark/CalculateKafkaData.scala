@@ -323,6 +323,7 @@ object CalculateKafkaData {
           val buildingCode = keyValues._1
           val valueJsonArray = keyValues._2
             .toArray
+            .distinct
             .filter(json => json.getString(5).trim() == "0" && Pattern.compile(" *A *").matcher(json.getString(6)).matches())
             .sortBy(json => getTimestamp(json.getString(1)))
           if (!valueJsonArray.isEmpty) {
@@ -439,11 +440,13 @@ object CalculateKafkaData {
           val itemName = keyValues._1
           val valueJsonArray = keyValues._2
             .toArray
+            .distinct
             .filter(_.getString(5).trim() == "0")
             .sortBy(json => getTimestamp(json.getString(1)))
           if (!valueJsonArray.isEmpty) {
             val connection = PhoenixHelper.getConnection(PhoenixFunctions.DATA_NAMESPACE)
             valueJsonArray.foreach(json => {
+              log.info(s"需要计算天表和月表的小时数据为：${json}")
               val jsonTime = json.getString(1)
               val typeCode = json.getString(6)
               val dataValue = json.getDouble(2)
@@ -485,6 +488,7 @@ object CalculateKafkaData {
               val lastMonthData = PhoenixFunctions.getEnergyDataByTime(monthTable, time.currentMonthTime, null, itemName)
               var currentMonthData: JSONArray = null
               if (lastMonthData.isEmpty) {
+                log.info("查询月表上次记录为空")
                 currentMonthData = new JSONArray
                 currentMonthData.add(itemName)
                 currentMonthData.add(time.currentMonthTime)
@@ -494,6 +498,7 @@ object CalculateKafkaData {
                 currentMonthData.add("0")
                 currentMonthData.add(typeCode)
               } else {
+                log.info(s"查询月表上次记录为：${lastMonthData.head}")
                 currentMonthData = lastMonthData.head
                 currentMonthData.set(2, SparkFunctions.getSum(currentMonthData.getDouble(2), dataValue))
                 currentMonthData.set(3, realValue)
@@ -554,7 +559,7 @@ object CalculateKafkaData {
             while (partIt.hasNext) {
               val keyValues = partIt.next()
               val buildingCode = keyValues._1
-              val valueJsonArray = keyValues._2.toArray.sortBy(json => getTimestamp(json.getString(2) + "0000"))
+              val valueJsonArray = keyValues._2.toArray.distinct.sortBy(json => getTimestamp(json.getString(2) + "0000"))
               valueJsonArray.foreach(json => {
                 val subTime = SparkFunctions.getAllTime(json.getString(2) + "0000")
                 val subHourTime = subTime.currentHourTime
