@@ -29,6 +29,8 @@ object TableConstant {
   val SUBENTRY_DAY = "phoenix.elec.subentry.day"
   // current_info
   val CURRENT_INFO = "phoenix.currentInfo"
+  // current_info_his
+  val CURRENT_INFO_HIS = "phoenix.currentInfoHis"
   // data_access
   val DATA_ACCESS = "phoenix.data_access"
   // tbl_item_type

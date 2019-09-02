@@ -17,6 +17,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import com.thtf.bigdata.kafka.ZkKafkaOffsetManager
 import com.thtf.bigdata.entity.DateTimeEntity
+import com.thtf.bigdata.common.TableConstant
 
 /**
  * 重新计算DS_HisData中某一段时间的数据，存入对应表中。
@@ -51,6 +52,8 @@ object CalculateHisData {
     // 其他配置
     val errorFromTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_FROMTIME)
     val errorEndTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_ENDTIME)
+    
+    val currentTableName = PropertiesUtils.getPropertiesByKey(TableConstant.CURRENT_INFO_HIS)
 
     var sparkConf = new SparkConf().setAppName(this.getClass.getSimpleName)
     // 测试用master
@@ -128,7 +131,7 @@ object CalculateHisData {
       
       // 创建广播变量
       // 获取tbl_item_current_info表记录
-      val bcCurrentInfo = sc.broadcast(PhoenixFunctions.getCurrentInfoMap())
+      val bcCurrentInfo = sc.broadcast(PhoenixFunctions.getCurrentInfoMap(currentTableName))
 
       if (!hisDataResultArr.isEmpty) {
         // 处理查询的数据
@@ -257,7 +260,7 @@ object CalculateHisData {
         log.info("写入other小时数据")
         //        hourDataResult.filter(json => { !pattern.matcher(json.getString(6)).matches() }).foreach(println)
         // 更新tbl_item_current_info表
-        PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
+        PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value,currentTableName)
         log.info("更新tbl_item_current_info表")
         //        currentInfoAccu.value.foreach(println)
         // 清空累加器

@@ -113,10 +113,10 @@ object CalculateKafkaData {
     val sc = ssc.sparkContext
     // tbl_item_current_info
     val currentInfoAccu = new JsonAccumulator
-    sc.register(currentInfoAccu, "current_info")
+    sc.register(currentInfoAccu)
     // data_access
     val dataAccessAccu = new JsonAccumulator
-    sc.register(dataAccessAccu, "data_access")
+    sc.register(dataAccessAccu)
     // 小时表数据
     //    val elecHourDataAccu = new JsonAccumulator
     //    sc.register(elecHourDataAccu,"elec_hour_data")
@@ -314,6 +314,12 @@ object CalculateKafkaData {
       log.info("更新data_access表")
       // 清空累加器
       dataAccessAccu.reset()
+      
+      // 更新tbl_item_current_info表
+      PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
+      log.info("更新tbl_item_current_info表")
+      // 清空累加器
+      currentInfoAccu.reset()
 
       // 计算电分项数据
       hourResultRdd.groupBy(_.getString(0).split("_").head).foreachPartition(partIt => {
@@ -538,11 +544,11 @@ object CalculateKafkaData {
       })
       log.info("更新天表和月表完成")
 
-      // 更新tbl_item_current_info表
+      /*// 更新tbl_item_current_info表
       PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
       log.info("更新tbl_item_current_info表")
       // 清空累加器
-      currentInfoAccu.reset()
+      currentInfoAccu.reset()*/
 
       // 当时间为整小时时，计算第三方传入的小时数据到分项数据
       // 当时间为整小时时，计算虚拟表数据

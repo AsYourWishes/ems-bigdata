@@ -42,6 +42,8 @@ object PhoenixFunctions {
   val subentry_day_table = PropertiesUtils.getPropertiesByKey(TableConstant.SUBENTRY_DAY)
   // currnet_info表
   val current_info_table = PropertiesUtils.getPropertiesByKey(TableConstant.CURRENT_INFO)
+  // currnet_info_his表
+  val current_info_his_table = PropertiesUtils.getPropertiesByKey(TableConstant.CURRENT_INFO_HIS)
   // data_access表
   val data_access_table = PropertiesUtils.getPropertiesByKey(TableConstant.DATA_ACCESS)
   // tbl_item_type表
@@ -168,14 +170,18 @@ object PhoenixFunctions {
   /**
    * 获取tbl_item_current_info表上一次的记录
    */
-  def getCurrentInfoMap() = {
+  def getCurrentInfoMap(tableName: String = null) = {
+    var currentTable = current_info_table
+    if(tableName != null){
+      currentTable = tableName
+    }
     val CURRENT_INFO_TABLE = s"""SELECT
                               |  "item_code",
                               |  TO_CHAR(CONVERT_TZ("date_time", 'GMT', 'Asia/Shanghai'),'yyyy-MM-dd HH:mm:ss'),
                               |  "real_value",
                           		|  "data_type" 
                               |FROM
-                              |  ${DATA_NAMESPACE}."${current_info_table}" """.stripMargin
+                              |  ${DATA_NAMESPACE}."${currentTable}" """.stripMargin
     var resultSet: ResultSet = null
     try {
       val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
@@ -193,8 +199,12 @@ object PhoenixFunctions {
   /**
    * 更新tbl_item_current_info表
    */
-  def updateCurrentInfo(jsonArray: ArrayBuffer[JSONArray]){
-    val CURRENT_INFO_COUNT_SQL = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."tbl_item_current_info" """.stripMargin
+  def updateCurrentInfo(jsonArray: ArrayBuffer[JSONArray],tableName: String = null){
+    var currentTableName = "tbl_item_current_info"
+    if(tableName != null){
+      currentTableName = current_info_his_table
+    }
+    val CURRENT_INFO_COUNT_SQL = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."$currentTableName" """.stripMargin
     var resultSet: ResultSet = null
     try {
       val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
@@ -209,7 +219,7 @@ object PhoenixFunctions {
     	  count = resultSet.getLong(1)
       }
     }
-    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, current_info_table, null, null))
+    val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, currentTableName, null, null))
       .map(json => {
         ((json.getString(1),json.getString(5)),json.getLong(0))
       }).toMap
@@ -221,7 +231,7 @@ object PhoenixFunctions {
       }
       jsonArray(i).add(0, id)
     }
-    phoenixWriteHbase(DATA_NAMESPACE, current_info_table, jsonArray.toArray)
+    phoenixWriteHbase(DATA_NAMESPACE, currentTableName, jsonArray.toArray)
   }
   
   /**
