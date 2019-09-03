@@ -433,6 +433,11 @@ object CalculateKafkaData {
                 numSub = numSub + 1
               }
             })
+          	try {
+          		if(connection != null) connection.close()
+          	} catch {
+          	case t: Throwable => t.printStackTrace() // TODO: handle error
+          	}
           }
         }
     	  log.info(s"Partition-${TaskContext.getPartitionId()}:更新分项表数据成功，更新数据${numSub}条")
@@ -538,6 +543,11 @@ object CalculateKafkaData {
               }
               numDayAndMonth = numDayAndMonth + 1
             })
+            try {
+          		if(connection != null) connection.close()
+          	} catch {
+          	case t: Throwable => t.printStackTrace() // TODO: handle error
+          	}
           }
         }
     	  log.info(s"Partition-${TaskContext.getPartitionId()}:更新天表和月表成功，更新数据${numDayAndMonth}条")
@@ -664,6 +674,11 @@ object CalculateKafkaData {
                       log.error(s"写入表${PhoenixFunctions.subentry_day_table}失败！出错数据为：$currentSubDayJson");
                   }
                  numThirdSub = numThirdSub + 1
+                 try {
+              		if(connection != null) connection.close()
+              	 } catch {
+              	 case t: Throwable => t.printStackTrace() // TODO: handle error
+              	 }
                 }
               })
             }
@@ -883,6 +898,11 @@ object CalculateKafkaData {
               }
             })
           }
+          try {
+        		if(connection != null) connection.close()
+        	} catch {
+        	case t: Throwable => t.printStackTrace() // TODO: handle error
+        	}
         })
         log.info("计算虚拟表数据完成")
         // 删除data_access表中type为0的数据

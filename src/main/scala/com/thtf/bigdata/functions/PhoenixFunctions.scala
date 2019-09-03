@@ -10,6 +10,9 @@ import com.alibaba.fastjson.JSONArray
 import java.util.ArrayList
 import org.apache.log4j.Logger
 import scala.collection.mutable.ArrayBuffer
+import java.sql.PreparedStatement
+import java.sql.Connection
+import scala.collection.immutable.Map
 
 object PhoenixFunctions {
   
@@ -117,25 +120,26 @@ object PhoenixFunctions {
     if (collectorCode != null) ITEM_MAX_VALUE = ITEM_MAX_VALUE + s""" AND b."code" = ${collectorCode}"""
     if (itemCode != null) ITEM_MAX_VALUE = ITEM_MAX_VALUE + s""" AND c."code" = ${itemCode}"""
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    val maxValueMap = new HashMap[(String,String),(Double,Double)]()
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-      val pres = conn.prepareStatement(ITEM_MAX_VALUE)
+      conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      pres = conn.prepareStatement(ITEM_MAX_VALUE)
       resultSet = pres.executeQuery()
-
+      while (resultSet.next()) {
+    	  var maxValue = resultSet.getDouble(5)
+    			  if(maxValue == null || maxValue < 0){
+    				  maxValue = 10000
+    			  }
+    	  var coefficient = resultSet.getDouble(6)
+    			  if(coefficient == null || coefficient < 0){
+    				  coefficient = 1
+    			  }
+    	  maxValueMap.put((s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4)), (maxValue,coefficient))
+      }
     } catch {
       case t: Throwable => t.printStackTrace()
-    }
-    val maxValueMap = new HashMap[(String,String),(Double,Double)]()
-    while (resultSet.next()) {
-      var maxValue = resultSet.getDouble(5)
-      if(maxValue == null || maxValue < 0){
-        maxValue = 10000
-		  }
-      var coefficient = resultSet.getDouble(6)
-      if(coefficient == null || coefficient < 0){
-        coefficient = 1
-		  }
-      maxValueMap.put((s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4)), (maxValue,coefficient))
     }
     maxValueMap
   }
@@ -183,17 +187,23 @@ object PhoenixFunctions {
                               |FROM
                               |  ${DATA_NAMESPACE}."${currentTable}" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var returnMap:Map[(String, String), (String, java.lang.Double)] = scala.collection.immutable.Map()
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(CURRENT_INFO_TABLE)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(CURRENT_INFO_TABLE)
       resultSet = pres.executeQuery()
+      returnMap = SparkFunctions.result2JsonArr(resultSet)
+      .map(json => {
+    	  ((json.getString(0),json.getString(3)),(json.getString(1),json.getDouble(2)))
+      }).toMap
     } catch {
       case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
-    SparkFunctions.result2JsonArr(resultSet)
-      .map(json => {
-        ((json.getString(0),json.getString(3)),(json.getString(1),json.getDouble(2)))
-      }).toMap
+    returnMap
   }
   
   /**
@@ -206,18 +216,22 @@ object PhoenixFunctions {
     }
     val CURRENT_INFO_COUNT_SQL = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."$currentTableName" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var count = 0L
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(CURRENT_INFO_COUNT_SQL)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(CURRENT_INFO_COUNT_SQL)
       resultSet = pres.executeQuery()
+      while(resultSet.next()){
+    	  if(resultSet.getLong(1) != null){
+    		  count = resultSet.getLong(1)
+    	  }
+      }
     } catch {
       case t: Throwable => t.printStackTrace()
-    }
-    var count = 0L
-    while(resultSet.next()){
-      if(resultSet.getLong(1) != null){
-    	  count = resultSet.getLong(1)
-      }
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
     val resultMap = SparkFunctions.result2JsonArr(PhoenixHelper.query(DATA_NAMESPACE, currentTableName, null, null))
       .map(json => {
@@ -240,18 +254,22 @@ object PhoenixFunctions {
   def insertDataAccess(jsonArray: ArrayBuffer[JSONArray]){
     val INSERT_DATA_ACCESS = s"""SELECT MAX("id") FROM ${DATA_NAMESPACE}."data_access" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var count = 0L
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(INSERT_DATA_ACCESS)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(INSERT_DATA_ACCESS)
       resultSet = pres.executeQuery()
+      while(resultSet.next()){
+    	  if(resultSet.getLong(1) != null){
+    		  count = resultSet.getLong(1)
+    	  }
+      }
     } catch {
       case t: Throwable => t.printStackTrace()
-    }
-    var count = 0L
-    while(resultSet.next()){
-      if(resultSet.getLong(1) != null){
-    	  count = resultSet.getLong(1)
-      }
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
     // 去重
     val distinctJsonArray = jsonArray.distinct
@@ -282,16 +300,21 @@ object PhoenixFunctions {
                               |ORDER BY
                               |  "timestamp" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var returnRs: ArrayBuffer[JSONArray] = ArrayBuffer()
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(DATA_ACCESS_SQL)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(DATA_ACCESS_SQL)
       resultSet = pres.executeQuery()
-
+      returnRs = SparkFunctions.result2JsonArr(resultSet)
     } catch {
       case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
     // 对获取到的data_access表数据去重
-    SparkFunctions.result2JsonArr(resultSet).distinct
+    returnRs.distinct
   }
 //  /**
 //   * 更新data_access数据,将处理过的数据type置为1
@@ -335,14 +358,18 @@ object PhoenixFunctions {
                                 		  |AND
                                 		  |  "type"=$typeNum """.stripMargin
 		  var result = 0
-				  try {
-					  val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-							  conn.setAutoCommit(true)
-							  val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
-							  result = pres.executeUpdate()
-				  } catch {
-				  case t: Throwable => t.printStackTrace()
-				  }
+		  var conn: Connection = null
+      var pres: PreparedStatement = null
+		  try {
+			  conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+			  conn.setAutoCommit(true)
+			  pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
+			  result = pres.executeUpdate()
+		  } catch {
+		  case t: Throwable => t.printStackTrace()
+		  }finally {
+		    closePhoenix(null, pres, conn)
+		  }
 		  result
   }
   
@@ -372,14 +399,20 @@ object PhoenixFunctions {
                             |AND a."id"= d."item_id"
                             |AND a."data_type"= e."id" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var returnRs: ArrayBuffer[JSONArray] = ArrayBuffer()
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-      val pres = conn.prepareStatement(VIRTUAL_ITEM_SQL)
+      conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      pres = conn.prepareStatement(VIRTUAL_ITEM_SQL)
       resultSet = pres.executeQuery()
+      returnRs = SparkFunctions.result2JsonArr(resultSet)
     } catch {
       case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
-    SparkFunctions.result2JsonArr(resultSet)
+    returnRs
   }
   /**
    * 通过itemId获取itemCode
@@ -399,16 +432,20 @@ object PhoenixFunctions {
                           |  a."collector_id"=b."id"
                           |AND b."building_id"=c."id" """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var itemCodeIdMap = new HashMap[Long,String]()
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-      val pres = conn.prepareStatement(ITEM_CODE_SQL)
+      conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      pres = conn.prepareStatement(ITEM_CODE_SQL)
       resultSet = pres.executeQuery()
+      while (resultSet.next()) {
+    	  itemCodeIdMap.put(resultSet.getLong(1),s"${resultSet.getString(2)}_${resultSet.getString(3)}_${resultSet.getString(4)}")
+      }
     } catch {
       case t: Throwable => t.printStackTrace()
-    }
-    val itemCodeIdMap = new HashMap[Long,String]()
-    while (resultSet.next()) {
-      itemCodeIdMap.put(resultSet.getLong(1),s"${resultSet.getString(2)}_${resultSet.getString(3)}_${resultSet.getString(4)}")
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
     itemCodeIdMap
   }
@@ -439,16 +476,20 @@ object PhoenixFunctions {
                         |WHERE
                         |  t3."data_type"= 11 """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var subentryMap = new HashMap[String,String]
     try {
-      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-      val pres = conn.prepareStatement(SUBENTRY_SQL)
+      conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      pres = conn.prepareStatement(SUBENTRY_SQL)
       resultSet = pres.executeQuery()
+      while(resultSet.next()){
+    	  subentryMap.put(s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4))
+      }
     } catch {
       case t: Throwable => t.printStackTrace()
-    }
-    val subentryMap = new HashMap[String,String]
-    while(resultSet.next()){
-      subentryMap.put(s"${resultSet.getString(1)}_${resultSet.getString(2)}_${resultSet.getString(3)}",resultSet.getString(4))
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
     subentryMap
   }
@@ -517,14 +558,20 @@ object PhoenixFunctions {
     }
 //    println(GET_ENERGY_DATA)
   	var resultSet: ResultSet = null
+  	var conn: Connection = null
+    var pres: PreparedStatement = null
+    var returnRs: ArrayBuffer[JSONArray] = ArrayBuffer()
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(GET_ENERGY_DATA)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(GET_ENERGY_DATA)
       resultSet = pres.executeQuery()
+      returnRs = SparkFunctions.result2JsonArr(resultSet)
     } catch {
       case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
-    SparkFunctions.result2JsonArr(resultSet)
+    returnRs
   }
   
   /**
@@ -546,16 +593,42 @@ object PhoenixFunctions {
                                 |AND
                                 |  "item_name" LIKE '${code}%' """.stripMargin
     var resultSet: ResultSet = null
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    var returnRs: ArrayBuffer[JSONArray] = ArrayBuffer()
     try {
-      val conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
-      val pres = conn.prepareStatement(GET_SUB_HOUR_DATA)
+      conn = PhoenixHelper.getConnection(DATA_NAMESPACE)
+      pres = conn.prepareStatement(GET_SUB_HOUR_DATA)
       resultSet = pres.executeQuery()
+      returnRs = SparkFunctions.result2JsonArr(resultSet)
     } catch {
       case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(resultSet, pres, conn)
     }
-    SparkFunctions.result2JsonArr(resultSet)
+    returnRs
   }
   
+  /**
+   * 关闭phoenix相关连接
+   */
+  def closePhoenix(resultSet:ResultSet,pres:PreparedStatement,conn:Connection){
+    try {
+      if(resultSet != null) resultSet.close()
+    } catch {
+      case t: Throwable => t.printStackTrace() // TODO: handle error
+    }
+    try {
+    	if(pres != null) pres.close()
+    } catch {
+    case t: Throwable => t.printStackTrace() // TODO: handle error
+    }
+    try {
+    	if(conn != null) conn.close()
+    } catch {
+    case t: Throwable => t.printStackTrace() // TODO: handle error
+    }
+  }
   
   
   
