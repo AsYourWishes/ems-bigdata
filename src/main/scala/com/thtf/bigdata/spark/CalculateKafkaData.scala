@@ -878,7 +878,7 @@ object CalculateKafkaData {
                 currentMonthVirJson.add(error)
                 currentMonthVirJson.add(itemJson.getString(7))
               } else {
-                currentMonthVirJson = lastVirDayArray.head
+                currentMonthVirJson = lastVirMonthArray.head
                 currentMonthVirJson.set(2, SparkFunctions.getSum(currentMonthVirJson.getDouble(2), changeValue))
                 currentMonthVirJson.set(3, SparkFunctions.getSum(currentMonthVirJson.getDouble(3), changeRealValue))
                 currentMonthVirJson.set(4, SparkFunctions.getSum(currentMonthVirJson.getDouble(4), changeRate))
