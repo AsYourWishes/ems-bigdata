@@ -7,6 +7,7 @@ import org.apache.log4j.Logger
 import java.sql.ResultSet
 import scala.collection.mutable.ArrayBuffer
 import com.alibaba.fastjson.JSONArray
+import java.util.Date
 
 /**
  * 封装一些操作spark RDD的方法
@@ -106,12 +107,17 @@ object SparkFunctions {
     val simple19 = new SimpleDateFormat(ENERGY_DATAFORMAT)
     try {
       // 测试字符串是否可以转换为时间
+      var date: Date = null
       if(time.trim().length() == 10){
-        simple14.parse(time.trim() + "0000")
+        date = simple14.parse(time.trim() + "0000")
       }else if(time.trim().length() == 14){
-    	  simple14.parse(time)
+    	  date = simple14.parse(time)
       }else {
-        simple19.parse(time)
+        date = simple19.parse(time)
+      }
+      // 如果可以转换为时间，判断时间是否大于当前时间，大于则弃用
+      if(date.getTime > System.currentTimeMillis()){
+        checkout = false
       }
     } catch {
       case t: Throwable =>

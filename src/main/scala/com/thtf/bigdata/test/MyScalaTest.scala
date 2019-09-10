@@ -7,6 +7,7 @@ import scala.math.BigDecimal
 import com.thtf.bigdata.functions.SparkFunctions
 import com.thtf.bigdata.spark.CalculateHisData
 import com.thtf.bigdata.functions.PhoenixFunctions
+import com.alibaba.fastjson.JSON
 
 object MyScalaTest {
   
@@ -26,10 +27,19 @@ object MyScalaTest {
 //    println(CalculateHisData.getyy_MM_ddTime(1523333333333L))
 //    jsonTimeSort
 //    stringNumberTest
-    PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, "2019-07-17 02:00:00", null, null)
-    
+//    PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.elec_hour_table, "2019-07-17 02:00:00", null, null)
+    jsonBugTest()
     
   }
+  
+  def jsonBugTest(): Unit ={
+    val str = "{\"a\":\"\\x";
+    val o = JSON.parse(str)
+    println(o)
+  }
+  
+  
+  
   
   def jsonTimeSort(){
     val json1 = new JSONArray
