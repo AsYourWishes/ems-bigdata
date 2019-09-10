@@ -54,6 +54,8 @@ object CalculateKafkaData {
     val batchInterval = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_BATCH).toLong
     val checkpoint = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_CHECKPOINT)
     val saveErrorData = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_SAVEERRORDATA).toBoolean
+    
+    val range = PropertiesUtils.getPropertiesByKey(PropertiesConstant.DATA_TIME_RANGE).toLong
 
     // kafka配置
     // <brokers> kafka的集群地址
@@ -174,7 +176,7 @@ object CalculateKafkaData {
         while (partIt.hasNext) {
           val nextJsonArray = JSON.parseArray(partIt.next().value())
           try {
-            val checkTimestamp = SparkFunctions.checkStringTime(nextJsonArray.getString(9))
+            val checkTimestamp = SparkFunctions.checkStringTime(nextJsonArray.getString(9),range)
             // 记录data_access数据，一个小时去重写入表一次
             if (checkTimestamp) {
               val dataAccessJson = new JSONArray

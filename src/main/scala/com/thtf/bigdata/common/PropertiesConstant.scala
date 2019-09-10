@@ -32,6 +32,8 @@ object PropertiesConstant {
   // error data time
   val SPARK_ERRORDATA_FROMTIME = "spark.errorData.fromTime"
   val SPARK_ERRORDATA_ENDTIME = "spark.errorData.endTime"
+  // 采集器时间的容错范围
+  val DATA_TIME_RANGE = "data.time.range"
   
   /**
    * 是否处理补传数据

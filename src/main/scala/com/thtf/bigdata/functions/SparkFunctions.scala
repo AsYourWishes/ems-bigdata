@@ -101,7 +101,7 @@ object SparkFunctions {
    * 检查传入的字符串是否可以转换为时间类型
    * 清洗数据时使用
    */
-  def checkStringTime(time: String) = {
+  def checkStringTime(time: String,range: Long = 0) = {
     var checkout = true
     val simple14 = new SimpleDateFormat(HISDATA_DATAFORMAT)
     val simple19 = new SimpleDateFormat(ENERGY_DATAFORMAT)
@@ -116,7 +116,7 @@ object SparkFunctions {
         date = simple19.parse(time)
       }
       // 如果可以转换为时间，判断时间是否大于当前时间，大于则弃用
-      if(date.getTime > System.currentTimeMillis()){
+      if((date.getTime - (range*1000)) > System.currentTimeMillis()){
         checkout = false
       }
     } catch {

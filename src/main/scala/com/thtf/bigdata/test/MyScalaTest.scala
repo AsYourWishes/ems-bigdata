@@ -33,7 +33,7 @@ object MyScalaTest {
   }
   
   def jsonBugTest(): Unit ={
-    val str = "{\"a\":\"\\x";
+    val str = "{\"a\":\"\\x\"";
     val o = JSON.parse(str)
     println(o)
   }

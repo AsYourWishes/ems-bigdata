@@ -53,6 +53,8 @@ object CalculateHisData {
     val errorFromTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_FROMTIME)
     val errorEndTime = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_ERRORDATA_ENDTIME)
     
+    val range = PropertiesUtils.getPropertiesByKey(PropertiesConstant.DATA_TIME_RANGE).toLong
+    
     val currentTableName = PropertiesUtils.getPropertiesByKey(TableConstant.CURRENT_INFO_HIS)
 
     var sparkConf = new SparkConf().setAppName(this.getClass.getSimpleName)
@@ -142,7 +144,7 @@ object CalculateHisData {
             json.getString(3) != null && // ParamID
             json.getString(6) != null && // Status
             SparkFunctions.checkStringNumber(json.getString(7)) && // Value 历史表中的varchar类型的数值需要检验
-            SparkFunctions.checkStringTime(json.getString(9)) // Timestamp
+            SparkFunctions.checkStringTime(json.getString(9),range) // Timestamp
         }).groupBy(json => {
           (s"${json.getString(0)}_${json.getString(1)}_${json.getString(2)}", json.getString(3))
         }).mapPartitions(partIt => {
