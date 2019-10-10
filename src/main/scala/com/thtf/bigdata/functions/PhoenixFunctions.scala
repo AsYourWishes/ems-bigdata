@@ -287,7 +287,7 @@ object PhoenixFunctions {
   def getDataAccessList(time: String,typeNum:String = "0") = {
     val timestamp = time.replaceAll("\\D", "").take(10)
     // data_access 表
-    val DATA_ACCESS_SQL = s"""SELECT
+    var DATA_ACCESS_SQL = s"""SELECT
                               |  "build_code",
                               |  "collector_code",
                               |  "timestamp" 
@@ -299,6 +299,17 @@ object PhoenixFunctions {
                               |  "timestamp" <= '${timestamp}'
                               |ORDER BY
                               |  "timestamp" """.stripMargin
+    if(typeNum == "2"){
+      DATA_ACCESS_SQL = s""" SELECT "build_code","collector_code","timestamp" FROM ${DATA_NAMESPACE}."data_access" s WHERE "type" = 2
+                            |AND NOT EXISTS
+	                          |  (SELECT "build_code","collector_code","timestamp" FROM ${DATA_NAMESPACE}."data_access" ss WHERE "type" = 3
+		                        |  AND 
+                            |    (s."build_code",s."collector_code",s."timestamp")=(ss."build_code",ss."collector_code",ss."timestamp"))
+                            |AND
+                            |	"timestamp" <= '${timestamp}'
+                            |ORDER BY 
+                            |  "timestamp" """.stripMargin
+    }
     var resultSet: ResultSet = null
     var conn: Connection = null
     var pres: PreparedStatement = null
@@ -316,34 +327,37 @@ object PhoenixFunctions {
     // 对获取到的data_access表数据去重
     returnRs.distinct
   }
-//  /**
-//   * 更新data_access数据,将处理过的数据type置为1
-//   */
-//  def updateDataAccess(time: String, maxDataAccessId: Long, typeNum:String = "0") = {
-//    val timestamp = time.replaceAll("\\D", "").take(10)
-//    // 更新data_access表
-//    var UPDATE_DATA_ACCESS = s"""UPSERT INTO
-//                                |  ${INFO_NAMESPACE}."data_access" ("id","type")
-//                                |SELECT
-//                            		|  "id",1
-//                                |FROM
-//                                |  ${INFO_NAMESPACE}."data_access"
-//                                |WHERE
-//                                |  "timestamp" <= '${timestamp}'
-//                                |AND
-//                                |  "type"=$typeNum """.stripMargin
-//    if(maxDataAccessId != -1) UPDATE_DATA_ACCESS = UPDATE_DATA_ACCESS + s""" AND "id" <= ${maxDataAccessId} """
-//    var result = 0
-//    try {
-//      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
-//      conn.setAutoCommit(true)
-//      val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
-//      result = pres.executeUpdate()
-//    } catch {
-//      case t: Throwable => t.printStackTrace()
-//    }
-//    result
-//  }
+  /**
+   * 更新data_access数据,将处理过的数据type置为目标数值
+   */
+  def updateDataAccess(time: String, typeNum:String, targetType:String) = {
+    val timestamp = time.replaceAll("\\D", "").take(10)
+    // 更新data_access表
+    var UPDATE_DATA_ACCESS = s"""UPSERT INTO
+                                |  ${INFO_NAMESPACE}."data_access" ("build_code","collector_code","timestamp","id","type")
+                                |SELECT
+                            		|  "build_code","collector_code","timestamp","id",${targetType}
+                                |FROM
+                                |  ${INFO_NAMESPACE}."data_access"
+                                |WHERE
+                                |  "timestamp" <= '${timestamp}'
+                                |AND
+                                |  "type"=$typeNum """.stripMargin
+    var result = 0
+    var conn: Connection = null
+    var pres: PreparedStatement = null
+    try {
+      val conn = PhoenixHelper.getConnection(INFO_NAMESPACE)
+      conn.setAutoCommit(true)
+      val pres = conn.prepareStatement(UPDATE_DATA_ACCESS)
+      result = pres.executeUpdate()
+    } catch {
+      case t: Throwable => t.printStackTrace()
+    }finally {
+      closePhoenix(null, pres, conn)
+    }
+    result
+  }
   /**
    * 删除data_access中的数据
    */

@@ -34,6 +34,8 @@ object PropertiesConstant {
   val SPARK_ERRORDATA_ENDTIME = "spark.errorData.endTime"
   // 采集器时间的容错范围
   val DATA_TIME_RANGE = "data.time.range"
+  // data_access 表中第三方已处理记录的保存时间（type为3的数据）
+  val DATA_ACCESS_STORAGELIFE = "dataAccess.storage.life"
   
   /**
    * 是否处理补传数据

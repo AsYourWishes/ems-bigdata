@@ -56,6 +56,8 @@ object CalculateKafkaData {
     val saveErrorData = PropertiesUtils.getPropertiesByKey(PropertiesConstant.SPARK_SAVEERRORDATA).toBoolean
     
     val range = PropertiesUtils.getPropertiesByKey(PropertiesConstant.DATA_TIME_RANGE).toLong
+    
+    val dataAccessStorageLife = PropertiesUtils.getPropertiesByKey(PropertiesConstant.DATA_TIME_RANGE).toLong
 
     // kafka配置
     // <brokers> kafka的集群地址
@@ -687,9 +689,17 @@ object CalculateKafkaData {
             log.info(s"Partition-${TaskContext.getPartitionId()}:更新第三方分项数据到小时表和天表成功，更新数据${numThirdSub}条")
           })
         log.info("计算第三方插入数据到分项表完成")
+        // 更新data_access表中type为2的数据到type为3
+        PhoenixFunctions.updateDataAccess(allTime.currentHourTime, "2", "3")
+        log.info(s"更新data_access表中${allTime.currentHourTime}之前的type=2的数据为type=3")
         // 删除data_access表中type为2的数据
         PhoenixFunctions.deleteDataAccess(allTime.currentHourTime, "2")
         log.info(s"删除data_access表中type为2,${allTime.currentHourTime}之前的数据")
+        
+        val deleteTime = getyy_MM_ddTime(getTimestamp(allTime.currentHourTime) - (dataAccessStorageLife * 1000*60*60*24*30))
+        // 删除指定时间，data_access表中type为3的数据
+        PhoenixFunctions.deleteDataAccess(deleteTime, "3")
+        log.info(s"删除data_access表中type为3,${deleteTime}之前的数据")
 
         // 计算虚拟表
         // 获取data_access表中type为0的数据
