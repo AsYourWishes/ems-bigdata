@@ -845,12 +845,7 @@ object CalculateKafkaData {
               var changeValue = d_value
               var changeRealValue = d_realValue
               var changeRate = d_rate
-              if (!lastVirHourArray.isEmpty) {
-                val lastVirJson = lastVirHourArray.head
-                changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
-                changeRealValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(3), changeRealValue)
-                changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
-              }
+
               // 获取天表上次记录
               val lastVirDayArray = PhoenixFunctions.getEnergyDataByTime(dayTableName, time.currentDayTime, null, itemName)
               var currentDayVirJson: JSONArray = null
@@ -866,9 +861,14 @@ object CalculateKafkaData {
                 currentDayVirJson.add(0d)
                 currentDayVirJson.add(itemJson.getString(7))
               } else {
+                if (!lastVirHourArray.isEmpty) {
+                  val lastVirJson = lastVirHourArray.head
+                  changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
+                  changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
+                }
                 currentDayVirJson = lastVirDayArray.head
                 currentDayVirJson.set(2, SparkFunctions.getSum(currentDayVirJson.getDouble(2), changeValue))
-                currentDayVirJson.set(3, SparkFunctions.getSum(currentDayVirJson.getDouble(3), changeRealValue))
+                currentDayVirJson.set(3, changeRealValue)
                 currentDayVirJson.set(4, SparkFunctions.getSum(currentDayVirJson.getDouble(4), changeRate))
               }
               // 更新到天表
@@ -898,9 +898,14 @@ object CalculateKafkaData {
                 currentMonthVirJson.add(error)
                 currentMonthVirJson.add(itemJson.getString(7))
               } else {
+                if (!lastVirHourArray.isEmpty) {
+                  val lastVirJson = lastVirHourArray.head
+                  changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
+                  changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
+                }
                 currentMonthVirJson = lastVirMonthArray.head
                 currentMonthVirJson.set(2, SparkFunctions.getSum(currentMonthVirJson.getDouble(2), changeValue))
-                currentMonthVirJson.set(3, SparkFunctions.getSum(currentMonthVirJson.getDouble(3), changeRealValue))
+                currentMonthVirJson.set(3, changeRealValue)
                 currentMonthVirJson.set(4, SparkFunctions.getSum(currentMonthVirJson.getDouble(4), changeRate))
               }
               // 更新到月表
