@@ -313,11 +313,14 @@ object CalculateKafkaData {
         }))
       log.info("写入other小时数据")
 
-      // 写入data_access表
-      PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
-      log.info("更新data_access表")
-      // 清空累加器
-      dataAccessAccu.reset()
+      // 当时间为整小时时，去重写入data_access表
+      if (allTime.currentMinuteTime == allTime.currentHourTime) {
+        // 写入data_access表
+        PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
+        log.info("更新data_access表")
+        // 清空累加器
+        dataAccessAccu.reset()
+      }
       
       // 更新tbl_item_current_info表
       PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
