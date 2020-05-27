@@ -314,13 +314,14 @@ object CalculateKafkaData {
       log.info("写入other小时数据")
 
       // 当时间为整小时时，去重写入data_access表
-      if (allTime.currentMinuteTime == allTime.currentHourTime) {
+      // 每小时读取data_access表时，会去重，此处不用去重
+//      if (allTime.currentMinuteTime == allTime.currentHourTime) {
         // 写入data_access表
         PhoenixFunctions.insertDataAccess(dataAccessAccu.value)
         log.info("更新data_access表")
         // 清空累加器
         dataAccessAccu.reset()
-      }
+//      }
       
       // 更新tbl_item_current_info表
       PhoenixFunctions.updateCurrentInfo(currentInfoAccu.value)
@@ -716,212 +717,225 @@ object CalculateKafkaData {
         // 获取前一个小时有更新的data_access
         val dataAccessArray = PhoenixFunctions.getDataAccessList(allTime.lastHourTime)
         log.info(s"计算计算虚拟表本次查询data_access时间为：${allTime.lastHourTime},查询数据量为${dataAccessArray.length}")
+        log.info(s"计算计算虚拟表本次查询data_access数据为：")        
+        dataAccessArray.foreach(dataAccessJson => {
+        	log.info(s"${dataAccessJson}")        
+        })
         //        println("查询到的data_access表信息")
         //        dataAccessArray.foreach(println)
         val virtualHourData = sc.parallelize(dataAccessArray).filter(json => {
           SparkFunctions.checkStringTime(json.getString(2))
+        }).groupBy(json => {
+          // 以建筑分组，同一个建筑的采集器记录依次计算，避免多个线程操作同一条数据
+          json.getString(0)
         }).foreachPartition(partIt => {
           val connection = PhoenixHelper.getConnection(PhoenixFunctions.DATA_NAMESPACE)
-          while (partIt.hasNext) {
-            val dataAccessJson = partIt.next()
-            val buildingId = dataAccessJson.getString(0)
-            // data_access中记录的时间
-            var time = SparkFunctions.getAllTime(dataAccessJson.getString(2).trim() + "0000")
-            // 获取记录时间的前一个小时
-            val beforhour = time.lastHourTime
-            time = SparkFunctions.getAllTime(beforhour)
-            // 获取虚拟设备列表
-            val virtualItemList = bcVirtualItem.value.filter(json => {
-              json.getString(0) == buildingId
-            })
-            /*
-            // 测试-----插入虚拟设备
-            val testJson = new JSONArray
-            testJson.add("430100A001")
-            testJson.add("01")
-            testJson.add("8888")
-            testJson.add("8499 + 8500")
-            testJson.add("10000")
-            testJson.add("01-1")
-            testJson.add("")
-            testJson.add("A")
-            virtualItemList.append(testJson)
-            // 测试-----插入虚拟设备
-            */
-            virtualItemList.foreach(itemJson => {
-              val typeCode = itemJson.getString(5)
-              val hourTableName = if (typeCode == "01-1") PhoenixFunctions.elec_hour_table else PhoenixFunctions.other_hour_table
-              val dayTableName = if (typeCode == "01-1") PhoenixFunctions.elec_day_table else PhoenixFunctions.other_day_table
-              val monthTableName = if (typeCode == "01-1") PhoenixFunctions.elec_month_table else PhoenixFunctions.other_month_table
-              var virtualLogic = itemJson.getString(3)
-              val ids = new ArrayBuffer[String]
-              if (virtualLogic != null) {
-                virtualLogic = virtualLogic.replaceAll("-", "#")
-                val itemIds = virtualLogic.split(" ")
-                for (id <- itemIds) {
-                  if (id.trim() != "") {
-                    ids.append(id)
-                  }
-                }
-              }
-              val value = new StringBuilder
-              val realValue = new StringBuilder
-              val rate = new StringBuilder
-              for (id <- ids) {
-                if (Pattern.compile("[0-9]*").matcher(id).matches()) {
-                  // 获取设备编码
-                  val itemCode = bcItemCodeById.value.getOrElse(id.toLong, null)
-                  if (itemCode != null) {
-                    // 获取对应小时数据
-                    val valueMap = PhoenixFunctions.getHourDataByCode(hourTableName, itemCode, beforhour, "0")
-                    if (!valueMap.isEmpty) {
-                      val mapValue = valueMap.head.getDouble(0)
-                      val mapRealValue = valueMap.head.getDouble(1)
-                      val mapRate = valueMap.head.getDouble(2)
-                      value.append(if (mapValue == null) "0" else mapValue)
-                      realValue.append(if (mapRealValue == null) "0" else mapRealValue)
-                      rate.append(if (mapRate == null) "0" else mapRate)
-                    } else {
-                      value.append("0")
-                      realValue.append("0")
-                      rate.append("0")
-                    }
-                  } else {
-                    value.append("0")
-                    realValue.append("0")
-                    rate.append("0")
-                  }
-                } else if (id.indexOf("d") == 0) {
-                  // 有字母d代表是常数
-                  val s = id.replaceAll("d", "")
-                  value.append(s)
-                  realValue.append(s)
-                  rate.append(s)
-                } else {
-                  value.append(id)
-                  realValue.append(id)
-                  rate.append(id)
-                }
-              }
-              val formulaUtil = new FormulaUtil
-              var d_value = formulaUtil.getResult(value.toString())
-              val d_realValue = formulaUtil.getResult(realValue.toString())
-              val d_rate = formulaUtil.getResult(rate.toString())
-
-              var maxValue = itemJson.getInteger(4)
-              if (maxValue == null) maxValue = 10000
-              var error = if (d_value <= maxValue) 0 else 2
-              if (d_value < 0) {
-                d_value = 0
-                error = 2
-              }
-              // 记录计算好的虚拟表记录
-              val itemName = s"${itemJson.getString(0)}_${itemJson.getString(1)}_${itemJson.getString(2)}"
-              val hourMapJson = new JSONArray
-              hourMapJson.add(itemName)
-              hourMapJson.add(beforhour)
-              hourMapJson.add(d_value)
-              hourMapJson.add(d_realValue)
-              hourMapJson.add(d_rate)
-              hourMapJson.add(error)
-              hourMapJson.add(itemJson.getString(7))
-              // 查询小时表中虚拟表数据，计算小时表新旧记录的差值，累加到天表和月表
-              val lastVirHourArray = PhoenixFunctions.getEnergyDataByTime(hourTableName, beforhour, null, itemName)
-              // 更新到小时表
-              try {
-                PhoenixHelper.upsert(
-                  connection,
-                  hourTableName,
-                  hourMapJson,
-                  CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + hourTableName))
-                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到小时表成功，数据为：${hourMapJson}")
-              } catch {
-                case t: Throwable =>
-                  t.printStackTrace() // TODO: handle error
-                  log.error(s"写入表${hourTableName}失败！出错数据为：$hourMapJson");
-              }
-              
-              // 更新到天表和月表
-              var changeValue = d_value
-              var changeRealValue = d_realValue
-              var changeRate = d_rate
-
-              // 获取天表上次记录
-              val lastVirDayArray = PhoenixFunctions.getEnergyDataByTime(dayTableName, time.currentDayTime, null, itemName)
-              var currentDayVirJson: JSONArray = null
-              if (lastVirDayArray.isEmpty) {
-                currentDayVirJson = new JSONArray
-                currentDayVirJson.add(itemName)
-                currentDayVirJson.add(time.currentDayTime)
-                currentDayVirJson.add(changeValue)
-                currentDayVirJson.add(changeRealValue)
-                currentDayVirJson.add(changeRate)
-                currentDayVirJson.add(error)
-                currentDayVirJson.add(0d)
-                currentDayVirJson.add(0d)
-                currentDayVirJson.add(itemJson.getString(7))
-              } else {
-                if (!lastVirHourArray.isEmpty) {
-                  val lastVirJson = lastVirHourArray.head
-                  changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
-                  changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
-                }
-                currentDayVirJson = lastVirDayArray.head
-                currentDayVirJson.set(2, SparkFunctions.getSum(currentDayVirJson.getDouble(2), changeValue))
-                currentDayVirJson.set(3, changeRealValue)
-                currentDayVirJson.set(4, SparkFunctions.getSum(currentDayVirJson.getDouble(4), changeRate))
-              }
-              // 更新到天表
-              try {
-                PhoenixHelper.upsert(
-                  connection,
-                  dayTableName,
-                  currentDayVirJson,
-                  CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + dayTableName))
-                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到天表成功，数据为：${currentDayVirJson}")
-              } catch {
-                case t: Throwable =>
-                  t.printStackTrace() // TODO: handle error
-                  log.error(s"写入表${dayTableName}失败！出错数据为：$currentDayVirJson");
-              }
-              
-              // 获取月表上次记录
-              val lastVirMonthArray = PhoenixFunctions.getEnergyDataByTime(monthTableName, time.currentMonthTime, null, itemName)
-              var currentMonthVirJson: JSONArray = null
-              if (lastVirMonthArray.isEmpty) {
-                currentMonthVirJson = new JSONArray
-                currentMonthVirJson.add(itemName)
-                currentMonthVirJson.add(time.currentMonthTime)
-                currentMonthVirJson.add(changeValue)
-                currentMonthVirJson.add(changeRealValue)
-                currentMonthVirJson.add(changeRate)
-                currentMonthVirJson.add(error)
-                currentMonthVirJson.add(itemJson.getString(7))
-              } else {
-                if (!lastVirHourArray.isEmpty) {
-                  val lastVirJson = lastVirHourArray.head
-                  changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
-                  changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
-                }
-                currentMonthVirJson = lastVirMonthArray.head
-                currentMonthVirJson.set(2, SparkFunctions.getSum(currentMonthVirJson.getDouble(2), changeValue))
-                currentMonthVirJson.set(3, changeRealValue)
-                currentMonthVirJson.set(4, SparkFunctions.getSum(currentMonthVirJson.getDouble(4), changeRate))
-              }
-              // 更新到月表
-              try {
-                PhoenixHelper.upsert(
-                  connection,
-                  monthTableName,
-                  currentMonthVirJson,
-                  CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + monthTableName))
-                log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到月表成功，数据为：${currentMonthVirJson}")
-              } catch {
-                case t: Throwable =>
-                  t.printStackTrace() // TODO: handle error
-                  log.error(s"写入表${monthTableName}失败！出错数据为：$currentMonthVirJson");
-              }
-            })
+          while(partIt.hasNext){
+            val partItGroup = partIt.next()._2.iterator
+            		while (partItGroup.hasNext) {
+            			val dataAccessJson = partItGroup.next()
+            					val buildingId = dataAccessJson.getString(0)
+            					val collectorId = dataAccessJson.getString(1)
+            					// data_access中记录的时间
+            					var time = SparkFunctions.getAllTime(dataAccessJson.getString(2).trim() + "0000")
+            					// 获取记录时间的前一个小时
+            					val beforhour = time.lastHourTime
+            					time = SparkFunctions.getAllTime(beforhour)
+            					// 获取虚拟设备列表
+            					val virtualItemList = bcVirtualItem.value.filter(json => {
+            						// 只根据建筑筛选，会有重复计算的问题，需要连同采集器筛选
+            						// 添加采集器过滤
+            						json.getString(0) == buildingId && json.getString(1) == collectorId
+            					})
+            					/*
+                        // 测试-----插入虚拟设备
+                        val testJson = new JSONArray
+                        testJson.add("430100A001")
+                        testJson.add("01")
+                        testJson.add("8888")
+                        testJson.add("8499 + 8500")
+                        testJson.add("10000")
+                        testJson.add("01-1")
+                        testJson.add("")
+                        testJson.add("A")
+                        virtualItemList.append(testJson)
+                        // 测试-----插入虚拟设备
+            					 */
+            					virtualItemList.foreach(itemJson => {
+            						val typeCode = itemJson.getString(5)
+            								val hourTableName = if (typeCode == "01-1") PhoenixFunctions.elec_hour_table else PhoenixFunctions.other_hour_table
+            								val dayTableName = if (typeCode == "01-1") PhoenixFunctions.elec_day_table else PhoenixFunctions.other_day_table
+            								val monthTableName = if (typeCode == "01-1") PhoenixFunctions.elec_month_table else PhoenixFunctions.other_month_table
+            								var virtualLogic = itemJson.getString(3)
+            								val ids = new ArrayBuffer[String]
+            										if (virtualLogic != null) {
+            											virtualLogic = virtualLogic.replaceAll("-", "#")
+            													val itemIds = virtualLogic.split(" ")
+            													for (id <- itemIds) {
+            														if (id.trim() != "") {
+            															ids.append(id)
+            														}
+            													}
+            										}
+            						val value = new StringBuilder
+            								val realValue = new StringBuilder
+            								val rate = new StringBuilder
+            								for (id <- ids) {
+            									if (Pattern.compile("[0-9]*").matcher(id).matches()) {
+            										// 获取设备编码
+            										val itemCode = bcItemCodeById.value.getOrElse(id.toLong, null)
+            												if (itemCode != null) {
+            													// 获取对应小时数据
+            													val valueMap = PhoenixFunctions.getHourDataByCode(hourTableName, itemCode, beforhour, "0")
+            															if (!valueMap.isEmpty) {
+            																val mapValue = valueMap.head.getDouble(0)
+            																		val mapRealValue = valueMap.head.getDouble(1)
+            																		val mapRate = valueMap.head.getDouble(2)
+            																		value.append(if (mapValue == null) "0" else mapValue)
+            																		realValue.append(if (mapRealValue == null) "0" else mapRealValue)
+            																		rate.append(if (mapRate == null) "0" else mapRate)
+            															} else {
+            																value.append("0")
+            																realValue.append("0")
+            																rate.append("0")
+            															}
+            												} else {
+            													value.append("0")
+            													realValue.append("0")
+            													rate.append("0")
+            												}
+            									} else if (id.indexOf("d") == 0) {
+            										// 有字母d代表是常数
+            										val s = id.replaceAll("d", "")
+            												value.append(s)
+            												realValue.append(s)
+            												rate.append(s)
+            									} else {
+            										value.append(id)
+            										realValue.append(id)
+            										rate.append(id)
+            									}
+            								}
+            						val formulaUtil = new FormulaUtil
+            								var d_value = formulaUtil.getResult(value.toString())
+            								val d_realValue = formulaUtil.getResult(realValue.toString())
+            								val d_rate = formulaUtil.getResult(rate.toString())
+            								
+            								var maxValue = itemJson.getInteger(4)
+            								if (maxValue == null) maxValue = 10000
+            								var error = if (d_value <= maxValue) 0 else 2
+            								if (d_value < 0) {
+            									d_value = 0
+            											error = 2
+            								}
+            						// 记录计算好的虚拟表记录
+            						val itemName = s"${itemJson.getString(0)}_${itemJson.getString(1)}_${itemJson.getString(2)}"
+            						val hourMapJson = new JSONArray
+            								hourMapJson.add(itemName)
+            								hourMapJson.add(beforhour)
+            								hourMapJson.add(d_value)
+            								hourMapJson.add(d_realValue)
+            								hourMapJson.add(d_rate)
+            								hourMapJson.add(error)
+            								hourMapJson.add(itemJson.getString(7))
+            								// 查询小时表中虚拟表数据，计算小时表新旧记录的差值，累加到天表和月表
+            								val lastVirHourArray = PhoenixFunctions.getEnergyDataByTime(hourTableName, beforhour, null, itemName)
+            								// 更新到小时表
+            								try {
+            									PhoenixHelper.upsert(
+            											connection,
+            											hourTableName,
+            											hourMapJson,
+            											CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + hourTableName))
+            									log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到小时表成功，数据为：${hourMapJson}")
+            								} catch {
+            								case t: Throwable =>
+            								t.printStackTrace() // TODO: handle error
+            								log.error(s"写入表${hourTableName}失败！出错数据为：$hourMapJson");
+            								}
+            						
+            						// 更新到天表和月表
+            						var changeValue = d_value
+            								var changeRealValue = d_realValue
+            								var changeRate = d_rate
+            								
+            								// 获取天表上次记录
+            								val lastVirDayArray = PhoenixFunctions.getEnergyDataByTime(dayTableName, time.currentDayTime, null, itemName)
+            								var currentDayVirJson: JSONArray = null
+            								if (lastVirDayArray.isEmpty) {
+            									currentDayVirJson = new JSONArray
+            											currentDayVirJson.add(itemName)
+            											currentDayVirJson.add(time.currentDayTime)
+            											currentDayVirJson.add(changeValue)
+            											currentDayVirJson.add(changeRealValue)
+            											currentDayVirJson.add(changeRate)
+            											currentDayVirJson.add(error)
+            											currentDayVirJson.add(0d)
+            											currentDayVirJson.add(0d)
+            											currentDayVirJson.add(itemJson.getString(7))
+            								} else {
+            									if (!lastVirHourArray.isEmpty) {
+            										val lastVirJson = lastVirHourArray.head
+            												changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
+            												changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
+            									}
+            									currentDayVirJson = lastVirDayArray.head
+            											currentDayVirJson.set(2, SparkFunctions.getSum(currentDayVirJson.getDouble(2), changeValue))
+            											currentDayVirJson.set(3, changeRealValue)
+            											currentDayVirJson.set(4, SparkFunctions.getSum(currentDayVirJson.getDouble(4), changeRate))
+            								}
+            								// 更新到天表
+            								try {
+            									PhoenixHelper.upsert(
+            											connection,
+            											dayTableName,
+            											currentDayVirJson,
+            											CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + dayTableName))
+            									log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到天表成功，数据为：${currentDayVirJson}")
+            								} catch {
+            								case t: Throwable =>
+            								t.printStackTrace() // TODO: handle error
+            								log.error(s"写入表${dayTableName}失败！出错数据为：$currentDayVirJson");
+            								}
+            								
+            								// 获取月表上次记录
+            								val lastVirMonthArray = PhoenixFunctions.getEnergyDataByTime(monthTableName, time.currentMonthTime, null, itemName)
+            										var currentMonthVirJson: JSONArray = null
+            										if (lastVirMonthArray.isEmpty) {
+            											currentMonthVirJson = new JSONArray
+            													currentMonthVirJson.add(itemName)
+            													currentMonthVirJson.add(time.currentMonthTime)
+            													currentMonthVirJson.add(changeValue)
+            													currentMonthVirJson.add(changeRealValue)
+            													currentMonthVirJson.add(changeRate)
+            													currentMonthVirJson.add(error)
+            													currentMonthVirJson.add(itemJson.getString(7))
+            										} else {
+            											if (!lastVirHourArray.isEmpty) {
+            												val lastVirJson = lastVirHourArray.head
+            														changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
+            														changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
+            											}
+            											currentMonthVirJson = lastVirMonthArray.head
+            													currentMonthVirJson.set(2, SparkFunctions.getSum(currentMonthVirJson.getDouble(2), changeValue))
+            													currentMonthVirJson.set(3, changeRealValue)
+            													currentMonthVirJson.set(4, SparkFunctions.getSum(currentMonthVirJson.getDouble(4), changeRate))
+            										}
+            								// 更新到月表
+            								try {
+            									PhoenixHelper.upsert(
+            											connection,
+            											monthTableName,
+            											currentMonthVirJson,
+            											CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + monthTableName))
+            									log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到月表成功，数据为：${currentMonthVirJson}")
+            								} catch {
+            								case t: Throwable =>
+            								t.printStackTrace() // TODO: handle error
+            								log.error(s"写入表${monthTableName}失败！出错数据为：$currentMonthVirJson");
+            								}
+            					})
+            		}
           }
           try {
         		if(connection != null) connection.close()
