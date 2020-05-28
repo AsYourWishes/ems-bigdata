@@ -731,9 +731,10 @@ object CalculateKafkaData {
         }).foreachPartition(partIt => {
           val connection = PhoenixHelper.getConnection(PhoenixFunctions.DATA_NAMESPACE)
           while(partIt.hasNext){
-            val partItGroup = partIt.next()._2.iterator
-            		while (partItGroup.hasNext) {
-            			val dataAccessJson = partItGroup.next()
+            val partItGroup = partIt.next()._2.iterator.toArray
+                // 计算时，以采集器时间顺序计算，避免旧数据realValue覆盖新数据记录
+            		partItGroup.sortBy(_.getString(2)).foreach(dataAccessJson => {
+//            			val dataAccessJson = partItGroup.next()
             					val buildingId = dataAccessJson.getString(0)
             					val collectorId = dataAccessJson.getString(1)
             					// data_access中记录的时间
@@ -935,7 +936,7 @@ object CalculateKafkaData {
             								log.error(s"写入表${monthTableName}失败！出错数据为：$currentMonthVirJson");
             								}
             					})
-            		}
+            		})
           }
           try {
         		if(connection != null) connection.close()
