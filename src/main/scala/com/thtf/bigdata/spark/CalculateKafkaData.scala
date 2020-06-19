@@ -841,7 +841,7 @@ object CalculateKafkaData {
             								hourMapJson.add(itemJson.getString(7))
             								// 查询小时表中虚拟表数据，计算小时表新旧记录的差值，累加到天表和月表
             								val lastVirHourArray = PhoenixFunctions.getEnergyDataByTime(hourTableName, beforhour, null, itemName)
-            								// 更新到小时表
+            								// 更新虚拟表数据到小时表
             								try {
             									PhoenixHelper.upsert(
             											connection,
@@ -855,7 +855,102 @@ object CalculateKafkaData {
             								log.error(s"写入表${hourTableName}失败！出错数据为：$hourMapJson");
             								}
             						
-            						// 更新到天表和月表
+            						// 将虚拟表记录累计入分项表数据
+            						var subCode = bcSubentryCode.value.getOrElse(itemName, null)
+            						if (subCode != null) {
+                          subCode = subCode.trim().take(3)
+                          val time = SparkFunctions.getAllTime(beforhour)
+                          // 查询分项小时表当前小时数据
+                          val lastSubHourArray = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_hour_table, beforhour, null, itemJson.getString(0))
+                          var currentSubHourJson: JSONArray = null
+                          if (lastSubHourArray.isEmpty) {
+                            currentSubHourJson = new JSONArray
+                            currentSubHourJson.add(itemJson.getString(0))
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(0d)
+                            currentSubHourJson.add(beforhour)
+                            if (subCode == "010") currentSubHourJson.set(1, d_value)
+                            if (subCode == "01A") currentSubHourJson.set(2, d_value)
+                            if (subCode == "01B") currentSubHourJson.set(3, d_value)
+                            if (subCode == "01C") currentSubHourJson.set(4, d_value)
+                            if (subCode == "01D") currentSubHourJson.set(5, d_value)
+                          } else {
+                            currentSubHourJson = lastSubHourArray.head
+                            currentSubHourJson.set(1, currentSubHourJson.getDouble(1))
+                            currentSubHourJson.set(2, currentSubHourJson.getDouble(2))
+                            currentSubHourJson.set(3, currentSubHourJson.getDouble(3))
+                            currentSubHourJson.set(4, currentSubHourJson.getDouble(4))
+                            currentSubHourJson.set(5, currentSubHourJson.getDouble(5))
+                            if (subCode == "010") currentSubHourJson.set(1, SparkFunctions.getSum(currentSubHourJson.getDouble(1), d_value))
+                            if (subCode == "01A") currentSubHourJson.set(2, SparkFunctions.getSum(currentSubHourJson.getDouble(2), d_value))
+                            if (subCode == "01B") currentSubHourJson.set(3, SparkFunctions.getSum(currentSubHourJson.getDouble(3), d_value))
+                            if (subCode == "01C") currentSubHourJson.set(4, SparkFunctions.getSum(currentSubHourJson.getDouble(4), d_value))
+                            if (subCode == "01D") currentSubHourJson.set(5, SparkFunctions.getSum(currentSubHourJson.getDouble(5), d_value))
+                          }
+                          // 查询分项天表当天数据
+                          val lastSubDayArray = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_day_table, time.currentDayTime, null, itemJson.getString(0))
+                          var currentSubDayJson: JSONArray = null
+                          if (lastSubDayArray.isEmpty) {
+                            currentSubDayJson = new JSONArray
+                            currentSubDayJson.add(itemJson.getString(0))
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(0d)
+                            currentSubDayJson.add(time.currentDayTime)
+                            if (subCode == "010") currentSubDayJson.set(1, d_value)
+                            if (subCode == "01A") currentSubDayJson.set(2, d_value)
+                            if (subCode == "01B") currentSubDayJson.set(3, d_value)
+                            if (subCode == "01C") currentSubDayJson.set(4, d_value)
+                            if (subCode == "01D") currentSubDayJson.set(5, d_value)
+                          } else {
+                            currentSubDayJson = lastSubDayArray.head
+                            currentSubDayJson.set(1, currentSubDayJson.getDouble(1))
+                            currentSubDayJson.set(2, currentSubDayJson.getDouble(2))
+                            currentSubDayJson.set(3, currentSubDayJson.getDouble(3))
+                            currentSubDayJson.set(4, currentSubDayJson.getDouble(4))
+                            currentSubDayJson.set(5, currentSubDayJson.getDouble(5))
+                            if (subCode == "010") currentSubDayJson.set(1, SparkFunctions.getSum(currentSubDayJson.getDouble(1), d_value))
+                            if (subCode == "01A") currentSubDayJson.set(2, SparkFunctions.getSum(currentSubDayJson.getDouble(2), d_value))
+                            if (subCode == "01B") currentSubDayJson.set(3, SparkFunctions.getSum(currentSubDayJson.getDouble(3), d_value))
+                            if (subCode == "01C") currentSubDayJson.set(4, SparkFunctions.getSum(currentSubDayJson.getDouble(4), d_value))
+                            if (subCode == "01D") currentSubDayJson.set(5, SparkFunctions.getSum(currentSubDayJson.getDouble(5), d_value))
+                          }
+                          // 更新虚拟表数据到分项小时表数据
+                          try {
+                            PhoenixHelper.upsert(
+                              connection,
+                              PhoenixFunctions.subentry_hour_table,
+                              currentSubHourJson,
+                              CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_hour_table))
+                              log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到分项数据小时表成功，数据为${currentSubHourJson}")
+                          } catch {
+                            case t: Throwable =>
+                              t.printStackTrace() // TODO: handle error
+                              log.error(s"写入表${PhoenixFunctions.subentry_hour_table}失败！出错数据为：$currentSubHourJson");
+                          }
+                          // 更新虚拟表数据到分项天表数据
+                          try {
+                            PhoenixHelper.upsert(
+                              connection,
+                              PhoenixFunctions.subentry_day_table,
+                              currentSubDayJson,
+                              CleaningModule.getColumnsType(PhoenixFunctions.DATA_NAMESPACE + "~" + PhoenixFunctions.subentry_day_table))
+                              log.info(s"Partition-${TaskContext.getPartitionId()}:更新虚拟表数据到分项数据天表成功，数据为${currentSubDayJson}")
+                          } catch {
+                            case t: Throwable =>
+                              t.printStackTrace() // TODO: handle error
+                              log.error(s"写入表${PhoenixFunctions.subentry_day_table}失败！出错数据为：$currentSubDayJson");
+                          }
+                        }
+            						
+            						// 更新虚拟表数据到天表和月表
             						var changeValue = d_value
             								var changeRealValue = d_realValue
             								var changeRate = d_rate
