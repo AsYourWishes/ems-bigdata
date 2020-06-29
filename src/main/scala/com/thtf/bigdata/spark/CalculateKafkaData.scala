@@ -818,9 +818,9 @@ object CalculateKafkaData {
             									}
             								}
             						val formulaUtil = new FormulaUtil
-            								var d_value = formulaUtil.getResult(value.toString())
-            								val d_realValue = formulaUtil.getResult(realValue.toString())
-            								val d_rate = formulaUtil.getResult(rate.toString())
+            								var d_value = formulaUtil.getResult(value.toString(), 2).toDouble
+            								val d_realValue = formulaUtil.getResult(realValue.toString(), 2).toDouble
+            								val d_rate = formulaUtil.getResult(rate.toString(), 2).toDouble
             								
             								var maxValue = itemJson.getInteger(4)
             								if (maxValue == null) maxValue = 10000
