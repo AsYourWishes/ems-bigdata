@@ -165,7 +165,7 @@ object SparkFunctions {
    * 计算两个字符串类型的数值的差值
    */
   def getSubtraction(smaller: Double,bigger: Double) = {
-		  (BigDecimal(bigger) - BigDecimal(smaller)).toDouble
+		  (BigDecimal.valueOf(bigger) - BigDecimal.valueOf(smaller)).toDouble
   }
   /**
    * 计算两个字符串类型的数值的差值
@@ -183,7 +183,7 @@ object SparkFunctions {
    * 计算两个字符串类型的数值的和
    */
   def getSum(smaller: Double,bigger: Double) = {
-		  (BigDecimal(bigger) + BigDecimal(smaller)).toDouble
+		  (BigDecimal.valueOf(bigger) + BigDecimal.valueOf(smaller)).toDouble
   }
   /**
    * 计算两个字符串类型的数值的和
@@ -201,7 +201,7 @@ object SparkFunctions {
    * 计算两个Double类型的数值的乘积
    */
   def getProduct(smaller: Double,bigger: Double) = {
-		  (BigDecimal(bigger) * BigDecimal(smaller)).toDouble
+		  (BigDecimal.valueOf(bigger) * BigDecimal.valueOf(smaller)).toDouble
   }
   
   /**
