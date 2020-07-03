@@ -781,6 +781,8 @@ object CalculateKafkaData {
             						val value = new StringBuilder
             								val realValue = new StringBuilder
             								val rate = new StringBuilder
+            								// 判断对应的id是否有数据，如果所有id都没有数据则不计算
+            								var hasHourData = false
             								for (id <- ids) {
             									if (Pattern.compile("[0-9]*").matcher(id).matches()) {
             										// 获取设备编码
@@ -789,6 +791,8 @@ object CalculateKafkaData {
             													// 获取对应小时数据
             													val valueMap = PhoenixFunctions.getHourDataByCode(hourTableName, itemCode, beforhour, "0")
             															if (!valueMap.isEmpty) {
+            															  // 如果有任何id有对应时间数据，则计算
+            															  hasHourData = true
             																val mapValue = valueMap.head.getDouble(0)
             																		val mapRealValue = valueMap.head.getDouble(1)
             																		val mapRate = valueMap.head.getDouble(2)
@@ -817,6 +821,8 @@ object CalculateKafkaData {
             										rate.append(id)
             									}
             								}
+            						// 如果值为true，表示有id对应数据，则计算
+            						if(hasHourData){
             						val formulaUtil = new FormulaUtil
             								var d_value = formulaUtil.getResult(value.toString(), 2).toDouble
             								val d_realValue = formulaUtil.getResult(realValue.toString(), 2).toDouble
@@ -841,6 +847,19 @@ object CalculateKafkaData {
             								hourMapJson.add(itemJson.getString(7))
             								// 查询小时表中虚拟表数据，计算小时表新旧记录的差值，累加到天表和月表
             								val lastVirHourArray = PhoenixFunctions.getEnergyDataByTime(hourTableName, beforhour, null, itemName)
+            								// 计算新旧数据差值
+            								var changeValue = d_value
+            								var changeRealValue = d_realValue
+            								var changeRate = d_rate
+            								if (!lastVirHourArray.isEmpty) {
+            										val lastVirJson = lastVirHourArray.head
+            												changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
+            												changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
+            												changeRealValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(3), changeRealValue)
+            								}
+            								// 如果已经有记录，并且差值为0，则不用计算一下数据
+            								// 如果没有上次记录，或者差值不为0，则需要计算
+            								if(lastVirHourArray.isEmpty || changeValue != 0){
             								// 更新虚拟表数据到小时表
             								try {
             									PhoenixHelper.upsert(
@@ -855,7 +874,10 @@ object CalculateKafkaData {
             								log.error(s"写入表${hourTableName}失败！出错数据为：$hourMapJson");
             								}
             						
+            						// 如果记录为有效记录，error=0,则计算分项表、天表月表
+            						if(error == 0){
             						// 将虚拟表记录累计入分项表数据
+            						// 将新旧记录的差值，计入分项表数据
             						var subCode = bcSubentryCode.value.getOrElse(itemName, null)
             						if (subCode != null) {
                           subCode = subCode.trim().take(3)
@@ -873,11 +895,11 @@ object CalculateKafkaData {
                             currentSubHourJson.add(0d)
                             currentSubHourJson.add(0d)
                             currentSubHourJson.add(beforhour)
-                            if (subCode == "010") currentSubHourJson.set(1, d_value)
-                            if (subCode == "01A") currentSubHourJson.set(2, d_value)
-                            if (subCode == "01B") currentSubHourJson.set(3, d_value)
-                            if (subCode == "01C") currentSubHourJson.set(4, d_value)
-                            if (subCode == "01D") currentSubHourJson.set(5, d_value)
+                            if (subCode == "010") currentSubHourJson.set(1, changeValue)
+                            if (subCode == "01A") currentSubHourJson.set(2, changeValue)
+                            if (subCode == "01B") currentSubHourJson.set(3, changeValue)
+                            if (subCode == "01C") currentSubHourJson.set(4, changeValue)
+                            if (subCode == "01D") currentSubHourJson.set(5, changeValue)
                           } else {
                             currentSubHourJson = lastSubHourArray.head
                             currentSubHourJson.set(1, currentSubHourJson.getDouble(1))
@@ -885,11 +907,11 @@ object CalculateKafkaData {
                             currentSubHourJson.set(3, currentSubHourJson.getDouble(3))
                             currentSubHourJson.set(4, currentSubHourJson.getDouble(4))
                             currentSubHourJson.set(5, currentSubHourJson.getDouble(5))
-                            if (subCode == "010") currentSubHourJson.set(1, SparkFunctions.getSum(currentSubHourJson.getDouble(1), d_value))
-                            if (subCode == "01A") currentSubHourJson.set(2, SparkFunctions.getSum(currentSubHourJson.getDouble(2), d_value))
-                            if (subCode == "01B") currentSubHourJson.set(3, SparkFunctions.getSum(currentSubHourJson.getDouble(3), d_value))
-                            if (subCode == "01C") currentSubHourJson.set(4, SparkFunctions.getSum(currentSubHourJson.getDouble(4), d_value))
-                            if (subCode == "01D") currentSubHourJson.set(5, SparkFunctions.getSum(currentSubHourJson.getDouble(5), d_value))
+                            if (subCode == "010") currentSubHourJson.set(1, SparkFunctions.getSum(currentSubHourJson.getDouble(1), changeValue))
+                            if (subCode == "01A") currentSubHourJson.set(2, SparkFunctions.getSum(currentSubHourJson.getDouble(2), changeValue))
+                            if (subCode == "01B") currentSubHourJson.set(3, SparkFunctions.getSum(currentSubHourJson.getDouble(3), changeValue))
+                            if (subCode == "01C") currentSubHourJson.set(4, SparkFunctions.getSum(currentSubHourJson.getDouble(4), changeValue))
+                            if (subCode == "01D") currentSubHourJson.set(5, SparkFunctions.getSum(currentSubHourJson.getDouble(5), changeValue))
                           }
                           // 查询分项天表当天数据
                           val lastSubDayArray = PhoenixFunctions.getEnergyDataByTime(PhoenixFunctions.subentry_day_table, time.currentDayTime, null, itemJson.getString(0))
@@ -904,11 +926,11 @@ object CalculateKafkaData {
                             currentSubDayJson.add(0d)
                             currentSubDayJson.add(0d)
                             currentSubDayJson.add(time.currentDayTime)
-                            if (subCode == "010") currentSubDayJson.set(1, d_value)
-                            if (subCode == "01A") currentSubDayJson.set(2, d_value)
-                            if (subCode == "01B") currentSubDayJson.set(3, d_value)
-                            if (subCode == "01C") currentSubDayJson.set(4, d_value)
-                            if (subCode == "01D") currentSubDayJson.set(5, d_value)
+                            if (subCode == "010") currentSubDayJson.set(1, changeValue)
+                            if (subCode == "01A") currentSubDayJson.set(2, changeValue)
+                            if (subCode == "01B") currentSubDayJson.set(3, changeValue)
+                            if (subCode == "01C") currentSubDayJson.set(4, changeValue)
+                            if (subCode == "01D") currentSubDayJson.set(5, changeValue)
                           } else {
                             currentSubDayJson = lastSubDayArray.head
                             currentSubDayJson.set(1, currentSubDayJson.getDouble(1))
@@ -916,11 +938,11 @@ object CalculateKafkaData {
                             currentSubDayJson.set(3, currentSubDayJson.getDouble(3))
                             currentSubDayJson.set(4, currentSubDayJson.getDouble(4))
                             currentSubDayJson.set(5, currentSubDayJson.getDouble(5))
-                            if (subCode == "010") currentSubDayJson.set(1, SparkFunctions.getSum(currentSubDayJson.getDouble(1), d_value))
-                            if (subCode == "01A") currentSubDayJson.set(2, SparkFunctions.getSum(currentSubDayJson.getDouble(2), d_value))
-                            if (subCode == "01B") currentSubDayJson.set(3, SparkFunctions.getSum(currentSubDayJson.getDouble(3), d_value))
-                            if (subCode == "01C") currentSubDayJson.set(4, SparkFunctions.getSum(currentSubDayJson.getDouble(4), d_value))
-                            if (subCode == "01D") currentSubDayJson.set(5, SparkFunctions.getSum(currentSubDayJson.getDouble(5), d_value))
+                            if (subCode == "010") currentSubDayJson.set(1, SparkFunctions.getSum(currentSubDayJson.getDouble(1), changeValue))
+                            if (subCode == "01A") currentSubDayJson.set(2, SparkFunctions.getSum(currentSubDayJson.getDouble(2), changeValue))
+                            if (subCode == "01B") currentSubDayJson.set(3, SparkFunctions.getSum(currentSubDayJson.getDouble(3), changeValue))
+                            if (subCode == "01C") currentSubDayJson.set(4, SparkFunctions.getSum(currentSubDayJson.getDouble(4), changeValue))
+                            if (subCode == "01D") currentSubDayJson.set(5, SparkFunctions.getSum(currentSubDayJson.getDouble(5), changeValue))
                           }
                           // 更新虚拟表数据到分项小时表数据
                           try {
@@ -950,10 +972,10 @@ object CalculateKafkaData {
                           }
                         }
             						
-            						// 更新虚拟表数据到天表和月表
-            						var changeValue = d_value
-            								var changeRealValue = d_realValue
-            								var changeRate = d_rate
+//            						// 更新虚拟表数据到天表和月表
+//            						var changeValue = d_value
+//            								var changeRealValue = d_realValue
+//            								var changeRate = d_rate
             								
             								// 获取天表上次记录
             								val lastVirDayArray = PhoenixFunctions.getEnergyDataByTime(dayTableName, time.currentDayTime, null, itemName)
@@ -962,22 +984,17 @@ object CalculateKafkaData {
             									currentDayVirJson = new JSONArray
             											currentDayVirJson.add(itemName)
             											currentDayVirJson.add(time.currentDayTime)
-            											currentDayVirJson.add(changeValue)
-            											currentDayVirJson.add(changeRealValue)
-            											currentDayVirJson.add(changeRate)
+            											currentDayVirJson.add(d_value)
+            											currentDayVirJson.add(d_realValue)
+            											currentDayVirJson.add(d_rate)
             											currentDayVirJson.add(error)
             											currentDayVirJson.add(0d)
             											currentDayVirJson.add(0d)
             											currentDayVirJson.add(itemJson.getString(7))
             								} else {
-            									if (!lastVirHourArray.isEmpty) {
-            										val lastVirJson = lastVirHourArray.head
-            												changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
-            												changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
-            									}
-            									currentDayVirJson = lastVirDayArray.head
+            									    currentDayVirJson = lastVirDayArray.head
             											currentDayVirJson.set(2, SparkFunctions.getSum(currentDayVirJson.getDouble(2), changeValue))
-            											currentDayVirJson.set(3, changeRealValue)
+            											currentDayVirJson.set(3, d_realValue)
             											currentDayVirJson.set(4, SparkFunctions.getSum(currentDayVirJson.getDouble(4), changeRate))
             								}
             								// 更新到天表
@@ -993,7 +1010,7 @@ object CalculateKafkaData {
             								t.printStackTrace() // TODO: handle error
             								log.error(s"写入表${dayTableName}失败！出错数据为：$currentDayVirJson");
             								}
-            								
+	
             								// 获取月表上次记录
             								val lastVirMonthArray = PhoenixFunctions.getEnergyDataByTime(monthTableName, time.currentMonthTime, null, itemName)
             										var currentMonthVirJson: JSONArray = null
@@ -1001,20 +1018,15 @@ object CalculateKafkaData {
             											currentMonthVirJson = new JSONArray
             													currentMonthVirJson.add(itemName)
             													currentMonthVirJson.add(time.currentMonthTime)
-            													currentMonthVirJson.add(changeValue)
-            													currentMonthVirJson.add(changeRealValue)
-            													currentMonthVirJson.add(changeRate)
+            													currentMonthVirJson.add(d_value)
+            													currentMonthVirJson.add(d_realValue)
+            													currentMonthVirJson.add(d_rate)
             													currentMonthVirJson.add(error)
             													currentMonthVirJson.add(itemJson.getString(7))
             										} else {
-            											if (!lastVirHourArray.isEmpty) {
-            												val lastVirJson = lastVirHourArray.head
-            														changeValue = SparkFunctions.getSubtraction(lastVirJson.getDouble(2), changeValue)
-            														changeRate = SparkFunctions.getSubtraction(lastVirJson.getDouble(4), changeRate)
-            											}
             											currentMonthVirJson = lastVirMonthArray.head
             													currentMonthVirJson.set(2, SparkFunctions.getSum(currentMonthVirJson.getDouble(2), changeValue))
-            													currentMonthVirJson.set(3, changeRealValue)
+            													currentMonthVirJson.set(3, d_realValue)
             													currentMonthVirJson.set(4, SparkFunctions.getSum(currentMonthVirJson.getDouble(4), changeRate))
             										}
             								// 更新到月表
@@ -1030,6 +1042,9 @@ object CalculateKafkaData {
             								t.printStackTrace() // TODO: handle error
             								log.error(s"写入表${monthTableName}失败！出错数据为：$currentMonthVirJson");
             								}
+            						 }
+            						}
+            					}
             					})
             		})
           }
